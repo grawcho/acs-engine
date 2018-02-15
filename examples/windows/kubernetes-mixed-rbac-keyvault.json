@@ -3,10 +3,7 @@
   "properties": {
     "orchestratorProfile": {
       "orchestratorType": "Kubernetes",
-      "orchestratorRelease": "1.8",
-      "kubernetesConfig": {
-        "useManagedIdentity": true
-      }
+      "orchestratorRelease": "1.9"
     },
     "masterProfile": {
       "count": 1,
@@ -15,13 +12,13 @@
     },
     "agentPoolProfiles": [
       {
-        "name": "linuxpool",
+        "name": "linuxpool1",
         "count": 2,
         "vmSize": "Standard_D2_v2",
         "availabilityProfile": "AvailabilitySet"
       },
       {
-        "name": "windowspool",
+        "name": "windowspool2",
         "count": 2,
         "vmSize": "Standard_D2_v2",
         "availabilityProfile": "AvailabilitySet",
