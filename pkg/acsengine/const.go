@@ -61,7 +61,7 @@ const (
 	// DefaultKubernetesCtrlMgrTerminatedPodGcThreshold is set to 5000, see --terminated-pod-gc-threshold at https://kubernetes.io/docs/admin/kube-controller-manager/ and https://github.com/kubernetes/kubernetes/issues/22680
 	DefaultKubernetesCtrlMgrTerminatedPodGcThreshold = "5000"
 	// DefaultKubernetesCtrlMgrUseSvcAccountCreds is "true", see --use-service-account-credentials at https://kubernetes.io/docs/admin/kube-controller-manager/
-	DefaultKubernetesCtrlMgrUseSvcAccountCreds = "true"
+	DefaultKubernetesCtrlMgrUseSvcAccountCreds = "false"
 	// DefaultKubernetesCloudProviderBackoff is false to disable cloudprovider backoff implementation for API calls
 	DefaultKubernetesCloudProviderBackoff = false
 	// DefaultKubernetesCloudProviderBackoffRetries is 6, takes effect if DefaultKubernetesCloudProviderBackoff is true
@@ -80,6 +80,8 @@ const (
 	DefaultKubernetesCloudProviderRateLimitBucket = 10
 	// DefaultTillerAddonName is the name of the tiller addon deployment
 	DefaultTillerAddonName = "tiller"
+	// DefaultTillerMaxHistory limits the maximum number of revisions saved per release. Use 0 for no limit.
+	DefaultTillerMaxHistory = 0
 	// DefaultACIConnectorAddonName is the name of the tiller addon deployment
 	DefaultACIConnectorAddonName = "aci-connector"
 	// DefaultDashboardAddonName is the name of the kubernetes-dashboard addon deployment
@@ -104,7 +106,7 @@ const (
 	// DefaultOrchestratorName specifies the 3 character orchestrator code of the cluster template and affects resource naming.
 	DefaultOrchestratorName = "k8s"
 	// DefaultEtcdVersion specifies the default etcd version to install
-	DefaultEtcdVersion = "3.2.11"
+	DefaultEtcdVersion = "3.2.16"
 	// DefaultEtcdDiskSize specifies the default size for Kubernetes master etcd disk volumes in GB
 	DefaultEtcdDiskSize = "128"
 	// DefaultReschedulerImage defines the rescheduler deployment version on Kubernetes Clusters

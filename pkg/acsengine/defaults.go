@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/Azure/acs-engine/pkg/api"
@@ -54,7 +55,7 @@ var (
 		ImageOffer:     "UbuntuServer",
 		ImageSku:       "16.04-LTS",
 		ImagePublisher: "Canonical",
-		ImageVersion:   "16.04.201801120",
+		ImageVersion:   "16.04.201801260",
 	}
 
 	//DefaultRHELOSImageConfig is the RHEL Linux distribution.
@@ -180,6 +181,9 @@ var (
 				CPULimits:      "50m",
 				MemoryLimits:   "150Mi",
 			},
+		},
+		Config: map[string]string{
+			"max-history": strconv.Itoa(DefaultTillerMaxHistory),
 		},
 	}
 

@@ -552,6 +552,7 @@ func getParameters(cs *api.ContainerService, isClassicMode bool, generatorCode s
 			addValue(parametersMap, "kubernetesTillerCPULimit", tillerAddon.Containers[c].CPULimits)
 			addValue(parametersMap, "kubernetesTillerMemoryRequests", tillerAddon.Containers[c].MemoryRequests)
 			addValue(parametersMap, "kubernetesTillerMemoryLimit", tillerAddon.Containers[c].MemoryLimits)
+			addValue(parametersMap, "kubernetesTillerMaxHistory", tillerAddon.Config["max-history"])
 			if tillerAddon.Containers[c].Image != "" {
 				addValue(parametersMap, "kubernetesTillerSpec", tillerAddon.Containers[c].Image)
 			} else {
@@ -1488,6 +1489,16 @@ func (t *TemplateGenerator) getTemplateFuncMap(cs *api.ContainerService) templat
 					} else {
 						val = ""
 					}
+				case "kubernetesTillerMaxHistory":
+					if tC > -1 {
+						if _, ok := tillerAddon.Config["max-history"]; ok {
+							val = tillerAddon.Config["max-history"]
+						} else {
+							val = "0"
+						}
+					} else {
+						val = "0"
+					}
 				case "kubernetesReschedulerSpec":
 					if rC > -1 {
 						if reschedulerAddon.Containers[rC].Image != "" {
@@ -1588,6 +1599,14 @@ func (t *TemplateGenerator) getTemplateFuncMap(cs *api.ContainerService) templat
 		"EnableDataEncryptionAtRest": func() bool {
 			return helpers.IsTrueBoolPointer(cs.Properties.OrchestratorProfile.KubernetesConfig.EnableDataEncryptionAtRest)
 		},
+		"EnableAggregatedAPIs": func() bool {
+			if cs.Properties.OrchestratorProfile.KubernetesConfig.EnableAggregatedAPIs {
+				return true
+			} else if isKubernetesVersionGe(cs.Properties.OrchestratorProfile.OrchestratorVersion, "1.9.0") {
+				return true
+			}
+			return false
+		},
 		// inspired by http://stackoverflow.com/questions/18276173/calling-a-template-with-several-pipeline-parameters/18276968#18276968
 		"dict": func(values ...interface{}) (map[string]interface{}, error) {
 			if len(values)%2 != 0 {
@@ -1676,7 +1695,6 @@ func makeWindowsExtensionScriptCommands(extension *api.Extension, extensionProfi
 
 func getDCOSWindowsAgentPreprovisionParameters(cs *api.ContainerService, profile *api.AgentPoolProfile) string {
 	extension := profile.PreprovisionExtension
-	parms := ""
 
 	var extensionProfile *api.ExtensionProfile
 
@@ -1687,7 +1705,7 @@ func getDCOSWindowsAgentPreprovisionParameters(cs *api.ContainerService, profile
 		}
 	}
 
-	parms = extensionProfile.ExtensionParameters
+	parms := extensionProfile.ExtensionParameters
 	return parms
 }
 
