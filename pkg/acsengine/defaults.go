@@ -121,7 +121,12 @@ var (
 			ResourceManagerVMDNSSuffix: "cloudapp.usgovcloudapi.net",
 		},
 		OSImageConfig: map[api.Distro]AzureOSImageConfig{
-			api.Ubuntu: DefaultUbuntuImageConfig,
+			api.Ubuntu: {
+				ImageOffer:     "UbuntuServer",
+				ImageSku:       "16.04-LTS",
+				ImagePublisher: "Canonical",
+				ImageVersion:   "latest",
+			},
 			api.RHEL:   DefaultRHELOSImageConfig,
 			api.CoreOS: DefaultCoreOSImageConfig,
 		},
@@ -236,15 +241,26 @@ var (
 			},
 		},
 	}
+
+	// DefaultMetricsServerAddonsConfig is the default metrics-server Kubernetes addon Config
+	DefaultMetricsServerAddonsConfig = api.KubernetesAddon{
+		Name:    DefaultMetricsServerAddonName,
+		Enabled: pointerToBool(api.DefaultMetricsServerAddonEnabled),
+		Containers: []api.KubernetesContainerSpec{
+			{
+				Name: DefaultMetricsServerAddonName,
+			},
+		},
+	}
 )
 
 // SetPropertiesDefaults for the container Properties, returns true if certs are generated
-func SetPropertiesDefaults(cs *api.ContainerService) (bool, error) {
+func SetPropertiesDefaults(cs *api.ContainerService, isUpgrade bool) (bool, error) {
 	properties := cs.Properties
 
 	setOrchestratorDefaults(cs)
 
-	setMasterNetworkDefaults(properties)
+	setMasterNetworkDefaults(properties, isUpgrade)
 
 	setHostedMasterNetworkDefaults(properties)
 
@@ -287,6 +303,7 @@ func setOrchestratorDefaults(cs *api.ContainerService) {
 				DefaultACIConnectorAddonsConfig,
 				DefaultDashboardAddonsConfig,
 				DefaultReschedulerAddonsConfig,
+				DefaultMetricsServerAddonsConfig,
 			}
 		} else {
 			// For each addon, provide default configuration if user didn't provide its own config
@@ -309,6 +326,11 @@ func setOrchestratorDefaults(cs *api.ContainerService) {
 			if r < 0 {
 				// Provide default acs-engine config for Rescheduler
 				o.KubernetesConfig.Addons = append(o.KubernetesConfig.Addons, DefaultReschedulerAddonsConfig)
+			}
+			m := getAddonsIndexByName(o.KubernetesConfig.Addons, DefaultMetricsServerAddonName)
+			if m < 0 {
+				// Provide default acs-engine config for Metrics Server
+				o.KubernetesConfig.Addons = append(o.KubernetesConfig.Addons, DefaultMetricsServerAddonsConfig)
 			}
 		}
 		if o.KubernetesConfig.KubernetesImageBase == "" {
@@ -404,6 +426,10 @@ func setOrchestratorDefaults(cs *api.ContainerService) {
 		if a.OrchestratorProfile.KubernetesConfig.Addons[r].IsEnabled(api.DefaultReschedulerAddonEnabled) {
 			a.OrchestratorProfile.KubernetesConfig.Addons[r] = assignDefaultAddonVals(a.OrchestratorProfile.KubernetesConfig.Addons[r], DefaultReschedulerAddonsConfig)
 		}
+		m := getAddonsIndexByName(a.OrchestratorProfile.KubernetesConfig.Addons, DefaultMetricsServerAddonName)
+		if a.OrchestratorProfile.KubernetesConfig.Addons[m].IsEnabled(api.DefaultMetricsServerAddonEnabled) {
+			a.OrchestratorProfile.KubernetesConfig.Addons[m] = assignDefaultAddonVals(a.OrchestratorProfile.KubernetesConfig.Addons[m], DefaultMetricsServerAddonsConfig)
+		}
 
 		if "" == a.OrchestratorProfile.KubernetesConfig.EtcdDiskSizeGB {
 			a.OrchestratorProfile.KubernetesConfig.EtcdDiskSizeGB = DefaultEtcdDiskSize
@@ -456,7 +482,7 @@ func setHostedMasterNetworkDefaults(a *api.Properties) {
 }
 
 // SetMasterNetworkDefaults for masters
-func setMasterNetworkDefaults(a *api.Properties) {
+func setMasterNetworkDefaults(a *api.Properties, isUpgrade bool) {
 	if a.MasterProfile == nil {
 		return
 	}
@@ -471,17 +497,29 @@ func setMasterNetworkDefaults(a *api.Properties) {
 			if a.OrchestratorProfile.IsAzureCNI() {
 				// When VNET integration is enabled, all masters, agents and pods share the same large subnet.
 				a.MasterProfile.Subnet = a.OrchestratorProfile.KubernetesConfig.ClusterSubnet
-				a.MasterProfile.FirstConsecutiveStaticIP = getFirstConsecutiveStaticIPAddress(a.MasterProfile.Subnet)
+				// FirstConsecutiveStaticIP is not reset if it is upgrade and some value already exists
+				if !isUpgrade || len(a.MasterProfile.FirstConsecutiveStaticIP) == 0 {
+					a.MasterProfile.FirstConsecutiveStaticIP = getFirstConsecutiveStaticIPAddress(a.MasterProfile.Subnet)
+				}
 			} else {
 				a.MasterProfile.Subnet = DefaultKubernetesMasterSubnet
-				a.MasterProfile.FirstConsecutiveStaticIP = DefaultFirstConsecutiveKubernetesStaticIP
+				// FirstConsecutiveStaticIP is not reset if it is upgrade and some value already exists
+				if !isUpgrade || len(a.MasterProfile.FirstConsecutiveStaticIP) == 0 {
+					a.MasterProfile.FirstConsecutiveStaticIP = DefaultFirstConsecutiveKubernetesStaticIP
+				}
 			}
 		} else if a.HasWindows() {
 			a.MasterProfile.Subnet = DefaultSwarmWindowsMasterSubnet
-			a.MasterProfile.FirstConsecutiveStaticIP = DefaultSwarmWindowsFirstConsecutiveStaticIP
+			// FirstConsecutiveStaticIP is not reset if it is upgrade and some value already exists
+			if !isUpgrade || len(a.MasterProfile.FirstConsecutiveStaticIP) == 0 {
+				a.MasterProfile.FirstConsecutiveStaticIP = DefaultSwarmWindowsFirstConsecutiveStaticIP
+			}
 		} else {
 			a.MasterProfile.Subnet = DefaultMasterSubnet
-			a.MasterProfile.FirstConsecutiveStaticIP = DefaultFirstConsecutiveStaticIP
+			// FirstConsecutiveStaticIP is not reset if it is upgrade and some value already exists
+			if !isUpgrade || len(a.MasterProfile.FirstConsecutiveStaticIP) == 0 {
+				a.MasterProfile.FirstConsecutiveStaticIP = DefaultFirstConsecutiveStaticIP
+			}
 		}
 	}
 
