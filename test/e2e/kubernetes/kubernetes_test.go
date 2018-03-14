@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strings"
 	"time"
 
 	"github.com/Azure/acs-engine/pkg/api/common"
@@ -30,7 +31,6 @@ const (
 var (
 	cfg config.Config
 	eng engine.Engine
-	err error
 )
 
 var _ = BeforeSuite(func() {
@@ -73,14 +73,17 @@ var _ = Describe("Azure Container Cluster using the Kubernetes Orchestrator", fu
 				expectedVersion = common.RationalizeReleaseAndVersion(
 					common.Kubernetes,
 					eng.ClusterDefinition.Properties.OrchestratorProfile.OrchestratorRelease,
-					eng.ClusterDefinition.Properties.OrchestratorProfile.OrchestratorVersion)
+					eng.ClusterDefinition.Properties.OrchestratorProfile.OrchestratorVersion,
+					false)
 			} else {
 				expectedVersion = common.RationalizeReleaseAndVersion(
 					common.Kubernetes,
 					eng.Config.OrchestratorRelease,
-					eng.Config.OrchestratorVersion)
+					eng.Config.OrchestratorVersion,
+					false)
 			}
-			Expect(version).To(Equal("v" + expectedVersion))
+			expectedVersionRationalized := strings.Split(expectedVersion, "-")[0] // to account for -alpha and -beta suffixes
+			Expect(version).To(Equal("v" + expectedVersionRationalized))
 		})
 
 		It("should have kube-dns running", func() {
@@ -256,6 +259,41 @@ var _ = Describe("Azure Container Cluster using the Kubernetes Orchestrator", fu
 	})
 
 	Describe("with a linux agent pool", func() {
+		It("should be able to produce a working ILB connection", func() {
+			if eng.HasLinuxAgents() {
+				By("Creating a nginx deployment")
+				r := rand.New(rand.NewSource(time.Now().UnixNano()))
+				serviceName := "ingress-nginx"
+				deploymentName := fmt.Sprintf("ingress-nginx-%s-%v", cfg.Name, r.Intn(99999))
+				_, err := deployment.CreateLinuxDeploy("library/nginx:latest", deploymentName, "default", "--labels=app="+serviceName)
+				Expect(err).NotTo(HaveOccurred())
+
+				s, err := service.CreateServiceFromFile(filepath.Join(WorkloadDir, "ingress-nginx-ilb.yaml"), serviceName, "default")
+				Expect(err).NotTo(HaveOccurred())
+				svc, err := s.WaitForExternalIP(cfg.Timeout, 5*time.Second)
+				Expect(err).NotTo(HaveOccurred())
+
+				By("Ensuring the ILB IP is assigned to the service")
+				curlDeploymentName := fmt.Sprintf("long-running-pod-%s-%v", cfg.Name, r.Intn(99999))
+				curlDeploy, err := deployment.CreateLinuxDeploy("library/nginx:latest", curlDeploymentName, "default", "")
+				Expect(err).NotTo(HaveOccurred())
+				running, err := pod.WaitOnReady(curlDeploymentName, "default", 3, 30*time.Second, cfg.Timeout)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(running).To(Equal(true))
+				curlPods, err := curlDeploy.Pods()
+				Expect(err).NotTo(HaveOccurred())
+				for i, curlPod := range curlPods {
+					if i < 1 {
+						pass, err := curlPod.ValidateCurlConnection(svc.Status.LoadBalancer.Ingress[0]["ip"], 5*time.Second, 5*time.Minute)
+						Expect(err).NotTo(HaveOccurred())
+						Expect(pass).To(BeTrue())
+					}
+				}
+			} else {
+				Skip("No linux agent was provisioned for this Cluster Definition")
+			}
+		})
+
 		It("should be able to autoscale", func() {
 			if eng.HasLinuxAgents() {
 				By("Creating a test php-apache deployment with request limit thresholds")

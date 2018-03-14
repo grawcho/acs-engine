@@ -298,7 +298,6 @@ func setOrchestratorDefaults(cs *api.ContainerService) {
 		if o.KubernetesConfig == nil {
 			o.KubernetesConfig = &api.KubernetesConfig{}
 		}
-
 		// Add default addons specification, if no user-provided spec exists
 		if o.KubernetesConfig.Addons == nil {
 			o.KubernetesConfig.Addons = []api.KubernetesAddon{
@@ -308,6 +307,7 @@ func setOrchestratorDefaults(cs *api.ContainerService) {
 				DefaultReschedulerAddonsConfig,
 				DefaultMetricsServerAddonsConfig,
 			}
+			enforceK8sVersionAddonOverrides(o.KubernetesConfig.Addons, o)
 		} else {
 			// For each addon, provide default configuration if user didn't provide its own config
 			t := getAddonsIndexByName(o.KubernetesConfig.Addons, DefaultTillerAddonName)
@@ -334,6 +334,8 @@ func setOrchestratorDefaults(cs *api.ContainerService) {
 			if m < 0 {
 				// Provide default acs-engine config for Metrics Server
 				o.KubernetesConfig.Addons = append(o.KubernetesConfig.Addons, DefaultMetricsServerAddonsConfig)
+				m = getAddonsIndexByName(o.KubernetesConfig.Addons, DefaultMetricsServerAddonName)
+				o.KubernetesConfig.Addons[m].Enabled = k8sVersionMetricsServerAddonEnabled(o)
 			}
 		}
 		if o.KubernetesConfig.KubernetesImageBase == "" {
@@ -385,7 +387,7 @@ func setOrchestratorDefaults(cs *api.ContainerService) {
 			o.KubernetesConfig.ServiceCIDR = DefaultKubernetesServiceCIDR
 		}
 		// Enforce sane cloudprovider backoff defaults, if CloudProviderBackoff is true in KubernetesConfig
-		if o.KubernetesConfig.CloudProviderBackoff == true {
+		if o.KubernetesConfig.CloudProviderBackoff {
 			if o.KubernetesConfig.CloudProviderBackoffDuration == 0 {
 				o.KubernetesConfig.CloudProviderBackoffDuration = DefaultKubernetesCloudProviderBackoffDuration
 			}
@@ -403,7 +405,7 @@ func setOrchestratorDefaults(cs *api.ContainerService) {
 		constraint, _ := semver.NewConstraint(">= 1.6.6")
 		// Enforce sane cloudprovider rate limit defaults, if CloudProviderRateLimit is true in KubernetesConfig
 		// For k8s version greater or equal to 1.6.6, we will set the default CloudProviderRate* settings
-		if o.KubernetesConfig.CloudProviderRateLimit == true && constraint.Check(k8sSemVer) {
+		if o.KubernetesConfig.CloudProviderRateLimit && constraint.Check(k8sSemVer) {
 			if o.KubernetesConfig.CloudProviderRateLimitQPS == 0 {
 				o.KubernetesConfig.CloudProviderRateLimitQPS = DefaultKubernetesCloudProviderRateLimitQPS
 			}
@@ -434,8 +436,28 @@ func setOrchestratorDefaults(cs *api.ContainerService) {
 			a.OrchestratorProfile.KubernetesConfig.Addons[m] = assignDefaultAddonVals(a.OrchestratorProfile.KubernetesConfig.Addons[m], DefaultMetricsServerAddonsConfig)
 		}
 
+		if o.KubernetesConfig.PrivateCluster == nil {
+			o.KubernetesConfig.PrivateCluster = &api.PrivateCluster{}
+		}
+
+		if o.KubernetesConfig.PrivateCluster.Enabled == nil {
+			o.KubernetesConfig.PrivateCluster.Enabled = pointerToBool(api.DefaultPrivateClusterEnabled)
+		}
+
 		if "" == a.OrchestratorProfile.KubernetesConfig.EtcdDiskSizeGB {
 			a.OrchestratorProfile.KubernetesConfig.EtcdDiskSizeGB = DefaultEtcdDiskSize
+		}
+
+		if a.OrchestratorProfile.KubernetesConfig.PrivateJumpboxProvision() && a.OrchestratorProfile.KubernetesConfig.PrivateCluster.JumpboxProfile.OSDiskSizeGB == 0 {
+			a.OrchestratorProfile.KubernetesConfig.PrivateCluster.JumpboxProfile.OSDiskSizeGB = DefaultJumpboxDiskSize
+		}
+
+		if a.OrchestratorProfile.KubernetesConfig.PrivateJumpboxProvision() && a.OrchestratorProfile.KubernetesConfig.PrivateCluster.JumpboxProfile.Username == "" {
+			a.OrchestratorProfile.KubernetesConfig.PrivateCluster.JumpboxProfile.Username = DefaultJumpboxUsername
+		}
+
+		if a.OrchestratorProfile.KubernetesConfig.PrivateJumpboxProvision() && a.OrchestratorProfile.KubernetesConfig.PrivateCluster.JumpboxProfile.StorageProfile == "" {
+			a.OrchestratorProfile.KubernetesConfig.PrivateCluster.JumpboxProfile.StorageProfile = api.StorageAccount
 		}
 
 		if a.OrchestratorProfile.KubernetesConfig.EnableRbac == nil {
@@ -444,6 +466,10 @@ func setOrchestratorDefaults(cs *api.ContainerService) {
 
 		if a.OrchestratorProfile.KubernetesConfig.EnableSecureKubelet == nil {
 			a.OrchestratorProfile.KubernetesConfig.EnableSecureKubelet = pointerToBool(api.DefaultSecureKubeletEnabled)
+		}
+
+		if a.OrchestratorProfile.KubernetesConfig.UseInstanceMetadata == nil {
+			a.OrchestratorProfile.KubernetesConfig.UseInstanceMetadata = pointerToBool(api.DefaultUseInstanceMetadata)
 		}
 
 		// Configure kubelet
@@ -798,7 +824,7 @@ func assignDefaultAddonVals(addon, defaults api.KubernetesAddon) api.KubernetesA
 	}
 	for key, val := range defaults.Config {
 		if addon.Config == nil {
-			addon.Config = make(map[string]string, 0)
+			addon.Config = make(map[string]string)
 		}
 		if v, ok := addon.Config[key]; !ok || v == "" {
 			addon.Config[key] = val
@@ -813,17 +839,11 @@ func pointerToBool(b bool) *bool {
 	return &p
 }
 
-func isKubernetesVersionGe(actualVersion, version string) bool {
-	orchestratorVersion, _ := semver.NewVersion(actualVersion)
-	constraint, _ := semver.NewConstraint(">=" + version)
-	return constraint.Check(orchestratorVersion)
-}
-
 // combine user-provided --feature-gates vals with defaults
 // a minimum k8s version may be declared as required for defaults assignment
 func addDefaultFeatureGates(m map[string]string, version string, minVersion string, defaults string) {
 	if minVersion != "" {
-		if isKubernetesVersionGe(version, minVersion) {
+		if common.IsKubernetesVersionGe(version, minVersion) {
 			m["--feature-gates"] = combineValues(m["--feature-gates"], defaults)
 		} else {
 			m["--feature-gates"] = combineValues(m["--feature-gates"], "")
@@ -834,8 +854,7 @@ func addDefaultFeatureGates(m map[string]string, version string, minVersion stri
 }
 
 func combineValues(inputs ...string) string {
-	var valueMap map[string]string
-	valueMap = make(map[string]string)
+	valueMap := make(map[string]string)
 	for _, input := range inputs {
 		applyValueStringToMap(valueMap, input)
 	}
@@ -866,4 +885,13 @@ func mapToString(valueMap map[string]string) string {
 		buf.WriteString(fmt.Sprintf("%s=%s,", key, valueMap[key]))
 	}
 	return strings.TrimSuffix(buf.String(), ",")
+}
+
+func enforceK8sVersionAddonOverrides(addons []api.KubernetesAddon, o *api.OrchestratorProfile) {
+	m := getAddonsIndexByName(o.KubernetesConfig.Addons, DefaultMetricsServerAddonName)
+	o.KubernetesConfig.Addons[m].Enabled = k8sVersionMetricsServerAddonEnabled(o)
+}
+
+func k8sVersionMetricsServerAddonEnabled(o *api.OrchestratorProfile) *bool {
+	return pointerToBool(common.IsKubernetesVersionGe(o.OrchestratorVersion, "1.9.0"))
 }

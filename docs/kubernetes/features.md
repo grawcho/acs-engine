@@ -4,6 +4,7 @@
 |---|---|---|---|---|
 |Managed Disks|Beta|`vlabs`|[kubernetes-vmas.json](../../examples/disks-managed/kubernetes-vmss.json)|[Description](#feat-managed-disks)|
 |Calico Network Policy|Alpha|`vlabs`|[kubernetes-calico.json](../../examples/networkpolicy/kubernetes-calico.json)|[Description](#feat-calico)|
+|Cilium Network Policy|Alpha|`vlabs`|[kubernetes-cilium.json](../../examples/networkpolicy/kubernetes-cilium.json)|[Description](#feat-cilium)|
 |Custom VNET|Beta|`vlabs`|[kubernetesvnet-azure-cni.json](../../examples/vnet/kubernetesvnet-azure-cni.json)|[Description](#feat-custom-vnet)|
 |Clear Containers Runtime|Alpha|`vlabs`|[kubernetes-clear-containers.json](../../examples/kubernetes-clear-containers.json)|[Description](#feat-clear-containers)|
 
@@ -162,6 +163,37 @@ Per default Calico still allows all communication within the cluster. Using Kube
 * [NetworkPolicy Example Walkthrough](https://kubernetes.io/docs/getting-started-guides/network-policy/walkthrough/)
 * [Calico Kubernetes](https://github.com/Azure/acs-engine/blob/master/examples/networkpolicy)
 
+<a name="feat-cilium"></a>
+
+## Network Policy Enforcement with Cilium
+
+Using the default configuration, Kubernetes allows communication between all
+Pods within a cluster. To ensure that Pods can only be accessed by authorized
+Pods, a policy enforcement is needed. To enable policy enforcement using Cilium refer to the 
+[cluster definition](https://github.com/Azure/acs-engine/blob/master/docs/clusterdefinition.md#kubernetesconfig) 
+document under networkPolicy. There is also a reference cluster definition available 
+[here](https://github.com/Azure/acs-engine/blob/master/examples/networkpolicy/kubernetes-cilium.json).
+
+This will deploy a Cilium agent to every instance of the cluster
+using a Kubernetes DaemonSet. After a successful deployment you should be able
+to see these Pods running in your cluster:
+
+```
+kubectl get pods --namespace kube-system -l k8s-app=cilium -o wide
+NAME                READY     STATUS    RESTARTS   AGE       IP             NODE
+cilium-034zh   2/2       Running   0          2h        10.240.255.5   k8s-master-30179930-0
+cilium-qmr7n   2/2       Running   0          2h        10.240.0.4     k8s-agentpool1-30179930-1
+cilium-z3p02   2/2       Running   0          2h        10.240.0.5     k8s-agentpool1-30179930-0
+```
+
+Per default Cilium still allows all communication within the cluster. Using Kubernetes' NetworkPolicy API, 
+you can define stricter policies. Good resources to get information about that are:
+
+* [Cilum Network Policy Docs](https://cilium.readthedocs.io/en/latest/kubernetes/policy/#k8s-policy)
+* [NetworkPolicy User Guide](https://kubernetes.io/docs/user-guide/networkpolicies/)
+* [NetworkPolicy Example Walkthrough](https://kubernetes.io/docs/getting-started-guides/network-policy/walkthrough/)
+* [Cilium Kubernetes](https://github.com/Azure/acs-engine/blob/master/examples/networkpolicy)
+
 <a name="feat-custom-vnet"></a>
 
 ## Custom VNET
@@ -281,14 +313,32 @@ You can build a private Kubernetes cluster with no public IP addresses assigned 
 
 ```
       "kubernetesConfig": {
-        "enablePrivateCluster": true
+        "privateCluster": {
+          "enabled": true
       }
 ```
 
-In order to access this cluster using kubectl commands, you will need a jumpbox in the same VNET (or onto a peer VNET that routes to the VNET). You can create a new jumpbox (if you don't already have one) in the Azure Portal under "Create a resource > Compute > Ubuntu Server 16.04 LTS VM" or using the [az cli](https://docs.microsoft.com/en-us/cli/azure/vm?view=azure-cli-latest#az_vm_create). You will then be able to:
+In order to access this cluster using kubectl commands, you will need a jumpbox in the same VNET (or onto a peer VNET that routes to the VNET). If you do not already have a jumpbox, you can use acs-engine to provision your jumpbox (see below) or create it manually. You can create a new jumpbox manually in the Azure Portal under "Create a resource > Compute > Ubuntu Server 16.04 LTS VM" or using the [az cli](https://docs.microsoft.com/en-us/cli/azure/vm?view=azure-cli-latest#az_vm_create). You will then be able to:
 - install [kubectl](https://kubernetes.io/docs/tasks/tools/install-kubectl/) on the jumpbox
 - copy the kubeconfig artifact for the right region from the deployment directory to the jumpbox
 - run `export KUBECONFIG=<path to your kubeconfig>`
 - run `kubectl` commands directly on the jumpbox
 
 Alternatively, you may also ssh into your nodes (given that your ssh key is on the jumpbox) and use the admin user kubeconfig on the cluster to run `kubectl` commands directly on the cluster. However, in the case of a multi-master private cluster, the connection will be refused when running commands on a master every time that master gets picked by the load balancer as it will be routing to itself (1 in 3 times for a 3 master cluster, 1 in 5 for 5 masters). This is expected behavior and therefore the method aforementioned of accessing nodes on the jumpbox using the `_output` directory kubeconfig is preferred.
+
+To auto-provision a jumpbox with your acs-engine deployment use:
+
+```
+      "kubernetesConfig": {
+        "privateCluster": {
+          "enabled": true,
+          "jumpboxProfile": {
+            "name": "my-jb",
+            "vmSize": "Standard_D4s_v3",
+            "osDiskSizeGB": 30,
+            "storageProfile": "ManagedDisks",
+            "username": "azureuser",
+            "publicKey": "xxx"
+          }
+      }
+```

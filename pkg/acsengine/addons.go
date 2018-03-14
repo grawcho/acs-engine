@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/Azure/acs-engine/pkg/api"
+	"github.com/Azure/acs-engine/pkg/api/common"
 	"github.com/Azure/acs-engine/pkg/helpers"
 )
 
@@ -67,6 +68,11 @@ func kubernetesAddonSettingsInit(profile *api.Properties) []kubernetesFeatureSet
 			profile.OrchestratorProfile.KubernetesConfig.NetworkPolicy == "calico",
 		},
 		{
+			"kubernetesmasteraddons-cilium-daemonset.yaml",
+			"cilium-daemonset.yaml",
+			profile.OrchestratorProfile.KubernetesConfig.NetworkPolicy == "cilium",
+		},
+		{
 			"kubernetesmasteraddons-aad-default-admin-group-rbac.yaml",
 			"aad-default-admin-group-rbac.yaml",
 			profile.AADProfile != nil && profile.AADProfile.AdminGroupID != "",
@@ -109,7 +115,7 @@ func kubernetesManifestSettingsInit(profile *api.Properties) []kubernetesFeature
 		{
 			"kubernetesmaster-audit-policy.yaml",
 			"audit-policy.yaml",
-			isKubernetesVersionGe(profile.OrchestratorProfile.OrchestratorVersion, "1.8.0"),
+			common.IsKubernetesVersionGe(profile.OrchestratorProfile.OrchestratorVersion, "1.8.0"),
 		},
 		{
 			"kubernetesmaster-kube-apiserver.yaml",

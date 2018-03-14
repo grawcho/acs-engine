@@ -22,6 +22,7 @@ import (
 
 	//log "github.com/sirupsen/logrus"
 	"github.com/Azure/acs-engine/pkg/api"
+	"github.com/Azure/acs-engine/pkg/api/common"
 	"github.com/Azure/acs-engine/pkg/helpers"
 	"github.com/Azure/acs-engine/pkg/i18n"
 	"github.com/Masterminds/semver"
@@ -34,6 +35,7 @@ const (
 	kubernetesMountetcd                      = "k8s/kubernetes_mountetcd.sh"
 	kubernetesMasterGenerateProxyCertsScript = "k8s/kubernetesmastergenerateproxycertscript.sh"
 	kubernetesAgentCustomDataYaml            = "k8s/kubernetesagentcustomdata.yml"
+	kubernetesJumpboxCustomDataYaml          = "k8s/kubernetesjumpboxcustomdata.yml"
 	kubeConfigJSON                           = "k8s/kubeconfig.json"
 	kubernetesWindowsAgentCustomDataPS1      = "k8s/kuberneteswindowssetup.ps1"
 )
@@ -294,7 +296,7 @@ func GenerateKubeConfig(properties *api.Properties, location string) (string, er
 	kubeconfig := string(b)
 	// variable replacement
 	kubeconfig = strings.Replace(kubeconfig, "{{WrapAsVerbatim \"variables('caCertificate')\"}}", base64.StdEncoding.EncodeToString([]byte(properties.CertificateProfile.CaCertificate)), -1)
-	if properties.OrchestratorProfile.KubernetesConfig.EnablePrivateCluster {
+	if properties.OrchestratorProfile.KubernetesConfig.PrivateCluster != nil && helpers.IsTrueBoolPointer(properties.OrchestratorProfile.KubernetesConfig.PrivateCluster.Enabled) {
 		if properties.MasterProfile.Count > 1 {
 			// more than 1 master, use the internal lb IP
 			firstMasterIP := net.ParseIP(properties.MasterProfile.FirstConsecutiveStaticIP).To4()
@@ -664,6 +666,14 @@ func getParameters(cs *api.ContainerService, isClassicMode bool, generatorCode s
 		addValue(parametersMap, "etcdDownloadURLBase", cloudSpecConfig.KubernetesSpecConfig.EtcdDownloadURLBase)
 		addValue(parametersMap, "etcdVersion", cs.Properties.OrchestratorProfile.KubernetesConfig.EtcdVersion)
 		addValue(parametersMap, "etcdDiskSizeGB", cs.Properties.OrchestratorProfile.KubernetesConfig.EtcdDiskSizeGB)
+		if cs.Properties.OrchestratorProfile.KubernetesConfig.PrivateJumpboxProvision() {
+			addValue(parametersMap, "jumpboxVMName", cs.Properties.OrchestratorProfile.KubernetesConfig.PrivateCluster.JumpboxProfile.Name)
+			addValue(parametersMap, "jumpboxVMSize", cs.Properties.OrchestratorProfile.KubernetesConfig.PrivateCluster.JumpboxProfile.VMSize)
+			addValue(parametersMap, "jumpboxUsername", cs.Properties.OrchestratorProfile.KubernetesConfig.PrivateCluster.JumpboxProfile.Username)
+			addValue(parametersMap, "jumpboxOSDiskSizeGB", cs.Properties.OrchestratorProfile.KubernetesConfig.PrivateCluster.JumpboxProfile.OSDiskSizeGB)
+			addValue(parametersMap, "jumpboxPublicKey", cs.Properties.OrchestratorProfile.KubernetesConfig.PrivateCluster.JumpboxProfile.PublicKey)
+			addValue(parametersMap, "jumpboxStorageProfile", cs.Properties.OrchestratorProfile.KubernetesConfig.PrivateCluster.JumpboxProfile.StorageProfile)
+		}
 		var totalNodes int
 		if cs.Properties.MasterProfile != nil {
 			totalNodes = cs.Properties.MasterProfile.Count
@@ -932,18 +942,32 @@ func (t *TemplateGenerator) getTemplateFuncMap(cs *api.ContainerService) templat
 			return cs.Properties.OrchestratorProfile.IsAzureCNI()
 		},
 		"IsPrivateCluster": func() bool {
-			return cs.Properties.OrchestratorProfile.KubernetesConfig != nil && cs.Properties.OrchestratorProfile.KubernetesConfig.EnablePrivateCluster
+			if !cs.Properties.OrchestratorProfile.IsKubernetes() {
+				return false
+			}
+			return helpers.IsTrueBoolPointer(cs.Properties.OrchestratorProfile.KubernetesConfig.PrivateCluster.Enabled)
+		},
+		"ProvisionJumpbox": func() bool {
+			return cs.Properties.OrchestratorProfile.KubernetesConfig.PrivateJumpboxProvision()
+		},
+		"JumpboxIsManagedDisks": func() bool {
+			if cs.Properties.OrchestratorProfile.KubernetesConfig.PrivateJumpboxProvision() && cs.Properties.OrchestratorProfile.KubernetesConfig.PrivateCluster.JumpboxProfile.StorageProfile == api.ManagedDisks {
+				return true
+			}
+			return false
+		},
+		"GetKubeConfig": func() string {
+			kubeConfig, err := GenerateKubeConfig(cs.Properties, cs.Location)
+			if err != nil {
+				return ""
+			}
+			return escapeSingleLine(kubeConfig)
 		},
 		"UseManagedIdentity": func() bool {
 			return cs.Properties.OrchestratorProfile.KubernetesConfig.UseManagedIdentity
 		},
 		"UseInstanceMetadata": func() bool {
-			if cs.Properties.OrchestratorProfile.KubernetesConfig.UseInstanceMetadata == nil {
-				return true
-			} else if *cs.Properties.OrchestratorProfile.KubernetesConfig.UseInstanceMetadata {
-				return true
-			}
-			return false
+			return helpers.IsTrueBoolPointer(cs.Properties.OrchestratorProfile.KubernetesConfig.UseInstanceMetadata)
 		},
 		"GetVNETSubnetDependencies": func() string {
 			return getVNETSubnetDependencies(cs.Properties)
@@ -1116,6 +1140,15 @@ func (t *TemplateGenerator) getTemplateFuncMap(cs *api.ContainerService) templat
 				"/etc/systemd/system",
 				"AGENT_ARTIFACTS_CONFIG_PLACEHOLDER",
 				cs.Properties.OrchestratorProfile.OrchestratorVersion)
+
+			return fmt.Sprintf("\"customData\": \"[base64(concat('%s'))]\",", str)
+		},
+		"GetKubernetesJumpboxCustomData": func(p *api.Properties) string {
+			str, err := t.getSingleLineForTemplate(kubernetesJumpboxCustomDataYaml, cs, p)
+
+			if err != nil {
+				return ""
+			}
 
 			return fmt.Sprintf("\"customData\": \"[base64(concat('%s'))]\",", str)
 		},
@@ -1584,6 +1617,8 @@ func (t *TemplateGenerator) getTemplateFuncMap(cs *api.ContainerService) templat
 					val = cs.Properties.OrchestratorProfile.KubernetesConfig.EtcdVersion
 				case "etcdDiskSizeGB":
 					val = cs.Properties.OrchestratorProfile.KubernetesConfig.EtcdDiskSizeGB
+				case "jumpboxOSDiskSizeGB":
+					val = strconv.Itoa(cs.Properties.OrchestratorProfile.KubernetesConfig.PrivateCluster.JumpboxProfile.OSDiskSizeGB)
 				default:
 					val = ""
 				}
@@ -1602,7 +1637,7 @@ func (t *TemplateGenerator) getTemplateFuncMap(cs *api.ContainerService) templat
 		"EnableAggregatedAPIs": func() bool {
 			if cs.Properties.OrchestratorProfile.KubernetesConfig.EnableAggregatedAPIs {
 				return true
-			} else if isKubernetesVersionGe(cs.Properties.OrchestratorProfile.OrchestratorVersion, "1.9.0") {
+			} else if common.IsKubernetesVersionGe(cs.Properties.OrchestratorProfile.OrchestratorVersion, "1.9.0") {
 				return true
 			}
 			return false
@@ -2341,7 +2376,7 @@ func getLinkedTemplatesForExtensions(properties *api.Properties) string {
 			result += ","
 			dta, e := getMasterLinkedTemplateText(properties.MasterProfile, orchestratorType, extensionProfile, singleOrAll)
 			if e != nil {
-				fmt.Printf(e.Error())
+				fmt.Println(e.Error())
 				return ""
 			}
 			result += dta
@@ -2354,7 +2389,7 @@ func getLinkedTemplatesForExtensions(properties *api.Properties) string {
 				result += ","
 				dta, e := getAgentPoolLinkedTemplateText(agentPoolProfile, orchestratorType, extensionProfile, singleOrAll)
 				if e != nil {
-					fmt.Printf(e.Error())
+					fmt.Println(e.Error())
 					return ""
 				}
 				result += dta
@@ -2442,7 +2477,7 @@ func validateProfileOptedForExtension(extensionName string, profileExtensions []
 // to pass a root extensions url for testing
 func getLinkedTemplateTextForURL(rootURL, orchestrator, extensionName, version, query string) (string, error) {
 	supportsExtension, err := orchestratorSupportsExtension(rootURL, orchestrator, extensionName, version, query)
-	if supportsExtension == false {
+	if !supportsExtension {
 		return "", fmt.Errorf("Extension not supported for orchestrator. Error: %s", err)
 	}
 
@@ -2466,7 +2501,7 @@ func orchestratorSupportsExtension(rootURL, orchestrator, extensionName, version
 		return false, fmt.Errorf("Unable to parse supported-orchestrators.json for Extension %s Version %s", extensionName, version)
 	}
 
-	if stringInSlice(orchestrator, supportedOrchestrators) != true {
+	if !stringInSlice(orchestrator, supportedOrchestrators) {
 		return false, fmt.Errorf("Orchestrator: %s not in list of supported orchestrators for Extension: %s Version %s", orchestrator, extensionName, version)
 	}
 

@@ -32,7 +32,7 @@ Here are the valid values for the orchestrator types:
 |---|---|---|
 |kubernetesImageBase|no|This specifies the base URL (everything preceding the actual image filename) of the kubernetes hyperkube image to use for cluster deployment, e.g., `k8s-gcrio.azureedge.net/`.|
 |dockerEngineVersion|no|Which version of docker-engine to use in your cluster, e.g.. "17.03.*"|
-|networkPolicy|no|Specifies the network policy tool for the cluster. Valid values are:<br>`"azure"` (default), which provides an Azure native networking experience,<br>`none` for not enforcing any network policy,<br>`calico` for Calico network policy (required for Kubernetes network policies; clusters with Linux agents only).<br>See [network policy examples](../examples/networkpolicy) for more information.|
+|networkPolicy|no|Specifies the network policy tool for the cluster. Valid values are:<br>`"azure"` (default), which provides an Azure native networking experience,<br>`none` for not enforcing any network policy,<br>`calico` for Calico network policy (required for Kubernetes network policies; clusters with Linux agents only).<br>`cilium` for cilium network policy (required for Kubernetes network policies; clusters with Linux agents only).<br>See [network policy examples](../examples/networkpolicy) for more information.|
 |containerRuntime|no|The container runtime to use as a backend. The default is `docker`. The only other option is `clear-containers`.|
 |clusterSubnet|no|The IP subnet used for allocating IP addresses for pod network interfaces. The subnet must be in the VNET address space. Default value is 10.244.0.0/16.|
 |dnsServiceIP|no|IP address for kube-dns to listen on. If specified must be in the range of `serviceCidr`.|
@@ -41,7 +41,7 @@ Here are the valid values for the orchestrator types:
 |enableRbac|no|Enable [Kubernetes RBAC](https://kubernetes.io/docs/admin/authorization/rbac/) (boolean - default == true) |
 |enableAggregatedAPIs|no|Enable [Kubernetes Aggregated APIs](https://kubernetes.io/docs/concepts/api-extension/apiserver-aggregation/).This is required by [Service Catalog](https://github.com/kubernetes-incubator/service-catalog/blob/master/README.md). (boolean - default == false) |
 |enableDataEncryptionAtRest|no|Enable [kuberetes data encryption at rest](https://kubernetes.io/docs/tasks/administer-cluster/encrypt-data/).This is currently an alpha feature. (boolean - default == false) |
-|enablePrivateCluster|no|Build a cluster without public addresses assigned (boolean - default == false) |
+|privateCluster|no|Build a cluster without public addresses assigned. See `privateClusters` [below](#feat-private-cluster).|
 |maxPods|no|The maximum number of pods per node. The minimum valid value, necessary for running kube-system pods, is 5. Default value is 30 when networkPolicy equals azure, 110 otherwise.|
 |gcHighThreshold|no|Sets the --image-gc-high-threshold value on the kublet configuration. Default is 85. [See kubelet Garbage Collection](https://kubernetes.io/docs/concepts/cluster-administration/kubelet-garbage-collection/) |
 |gcLowThreshold|no|Sets the --image-gc-low-threshold value on the kublet configuration. Default is 80. [See kubelet Garbage Collection](https://kubernetes.io/docs/concepts/cluster-administration/kubelet-garbage-collection/) |
@@ -356,6 +356,29 @@ Below is a list of apiserver options that are *not* currently user-configurable,
 |"--oidc-issuer-url"|*calculated value that represents OID issuer URL* (*if has AADProfile*)|
 
 We consider `kubeletConfig`, `controllerManagerConfig`, and `apiServerConfig` to be generic conveniences that add power/flexibility to cluster deployments. Their usage comes with no operational guarantees! They are manual tuning features that enable low-level configuration of a kubernetes cluster.
+
+<a name="feat-private-cluster"></a>
+#### privateCluster
+
+`privateCluster` defines a cluster without public addresses assigned. It is a child property of `kubernetesConfig`.
+
+|Name|Required|Description|
+|---|---|---|
+|enabled|no|Enable [Private Cluster](./kubernetes/features.md/#feat-private-cluster) (boolean - default == false) |
+|jumpboxProfile|no|Configure and auto-provision a jumpbox to access your private cluster. `jumpboxProfile` is ignored if enabled is `false`. See `jumpboxProfile` below.|
+
+#### jumpboxProfile
+
+`jumpboxProfile` describes the settings for a jumpbox deployed via acs-engine to access a private cluster. It is a child property of `privateCluster`.
+
+|Name|Required|Description|
+|---|---|---|
+|name|yes|This is the unique name for the jumpbox VM. Some resources deployed with the jumpbox are derived from this name.|
+|vmSize|yes|Describes a valid [Azure VM Sizes](https://azure.microsoft.com/en-us/documentation/articles/virtual-machines-windows-sizes/).|
+|publicKey|yes|The public SSH key used for authenticating access to the jumpbox.  Here are instructions for [generating a public/private key pair](ssh.md#ssh-key-generation).|
+|osDiskSizeGB|no|Describes the OS Disk Size in GB. Defaults to `30`|
+|storageProfile|no|Specifies the storage profile to use.  Valid values are [StorageAccount](../examples/disks-storageaccount) or [ManagedDisks](../examples/disks-managed). Defaults to `StorageAccount`|
+|username|no|describes the admin username to be used on the jumpbox. Defaults to `azureuser`|
 
 ### masterProfile
 `masterProfile` describes the settings for master configuration.
