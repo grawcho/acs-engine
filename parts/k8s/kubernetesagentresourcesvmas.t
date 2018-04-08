@@ -43,7 +43,7 @@
       },
       "type": "Microsoft.Network/networkInterfaces"
     },
-{{if .IsManagedDisks}} 
+{{if .IsManagedDisks}}
    {
       "location": "[variables('location')]",
       "name": "[variables('{{.Name}}AvailabilitySet')]",
@@ -54,7 +54,7 @@
             "platformUpdateDomainCount": 3,
 		"managed" : "true"
         },
-  
+
       "type": "Microsoft.Compute/availabilitySets"
     },
 {{else if .IsStorageAccount}}
@@ -107,7 +107,7 @@
       "properties": {},
       "type": "Microsoft.Compute/availabilitySets"
     },
-{{end}} 
+{{end}}
   {
     {{if .IsManagedDisks}}
       "apiVersion": "[variables('apiVersionStorageManagedDisks')]",
@@ -178,12 +178,18 @@
             {{end}}
         },
         "storageProfile": {
+          {{if not (UseAgentCustomImage .)}}
           {{GetDataDisks .}}
+          {{end}}
           "imageReference": {
+            {{if UseAgentCustomImage .}}
+            "id": "[resourceId(variables('{{.Name}}osImageResourceGroup'), 'Microsoft.Compute/images', variables('{{.Name}}osImageName'))]"
+            {{else}}
             "offer": "[variables('{{.Name}}osImageOffer')]",
             "publisher": "[variables('{{.Name}}osImagePublisher')]",
             "sku": "[variables('{{.Name}}osImageSKU')]",
             "version": "[variables('{{.Name}}osImageVersion')]"
+            {{end}}
           },
           "osDisk": {
             "createOption": "FromImage"

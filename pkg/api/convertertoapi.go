@@ -512,7 +512,7 @@ func convertVLabsWindowsProfile(vlabs *vlabs.WindowsProfile, api *WindowsProfile
 func convertV20160930OrchestratorProfile(v20160930 *v20160930.OrchestratorProfile, api *OrchestratorProfile) {
 	api.OrchestratorType = v20160930.OrchestratorType
 	if api.OrchestratorType == Kubernetes {
-		api.OrchestratorVersion = common.KubernetesVersion1Dot6Dot9
+		api.OrchestratorVersion = "1.6.9"
 	} else if api.OrchestratorType == DCOS {
 		api.OrchestratorVersion = DCOSVersion1Dot9Dot0
 	}
@@ -638,6 +638,7 @@ func convertVLabsKubernetesConfig(vlabs *vlabs.KubernetesConfig, api *Kubernetes
 	convertControllerManagerConfigToAPI(vlabs, api)
 	convertCloudControllerManagerConfigToAPI(vlabs, api)
 	convertAPIServerConfigToAPI(vlabs, api)
+	convertSchedulerConfigToAPI(vlabs, api)
 	convertPrivateClusterToAPI(vlabs, api)
 }
 
@@ -706,6 +707,13 @@ func convertAPIServerConfigToAPI(v *vlabs.KubernetesConfig, a *KubernetesConfig)
 	a.APIServerConfig = map[string]string{}
 	for key, val := range v.APIServerConfig {
 		a.APIServerConfig[key] = val
+	}
+}
+
+func convertSchedulerConfigToAPI(v *vlabs.KubernetesConfig, a *KubernetesConfig) {
+	a.SchedulerConfig = map[string]string{}
+	for key, val := range v.SchedulerConfig {
+		a.SchedulerConfig[key] = val
 	}
 }
 
@@ -810,6 +818,11 @@ func convertVLabsMasterProfile(vlabs *vlabs.MasterProfile, api *MasterProfile) {
 		api.KubernetesConfig = &KubernetesConfig{}
 		convertVLabsKubernetesConfig(vlabs.KubernetesConfig, api.KubernetesConfig)
 	}
+	if vlabs.ImageRef != nil {
+		api.ImageRef = &ImageReference{}
+		api.ImageRef.Name = vlabs.ImageRef.Name
+		api.ImageRef.ResourceGroup = vlabs.ImageRef.ResourceGroup
+	}
 }
 
 func convertV20160930AgentPoolProfile(v20160930 *v20160930.AgentPoolProfile, availabilityProfile string, api *AgentPoolProfile) {
@@ -911,6 +924,11 @@ func convertVLabsAgentPoolProfile(vlabs *vlabs.AgentPoolProfile, api *AgentPoolP
 	if vlabs.KubernetesConfig != nil {
 		api.KubernetesConfig = &KubernetesConfig{}
 		convertVLabsKubernetesConfig(vlabs.KubernetesConfig, api.KubernetesConfig)
+	}
+	if vlabs.ImageRef != nil {
+		api.ImageRef = &ImageReference{}
+		api.ImageRef.Name = vlabs.ImageRef.Name
+		api.ImageRef.ResourceGroup = vlabs.ImageRef.ResourceGroup
 	}
 }
 

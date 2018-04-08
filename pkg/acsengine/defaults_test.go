@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/Azure/acs-engine/pkg/api"
+	"github.com/Azure/acs-engine/pkg/helpers"
 )
 
 func TestCertsAlreadyPresent(t *testing.T) {
@@ -198,7 +199,7 @@ func TestAssignDefaultAddonVals(t *testing.T) {
 	// Verify that an addon with all custom values provided remains unmodified during default value assignment
 	customAddon := api.KubernetesAddon{
 		Name:    addonName,
-		Enabled: pointerToBool(true),
+		Enabled: helpers.PointerToBool(true),
 		Containers: []api.KubernetesContainerSpec{
 			{
 				Name:           addonName,
@@ -230,7 +231,7 @@ func TestAssignDefaultAddonVals(t *testing.T) {
 	// Verify that an addon with no custom values provided gets all the appropriate defaults
 	customAddon = api.KubernetesAddon{
 		Name:    addonName,
-		Enabled: pointerToBool(true),
+		Enabled: helpers.PointerToBool(true),
 		Containers: []api.KubernetesContainerSpec{
 			{
 				Name: addonName,
@@ -254,7 +255,7 @@ func TestAssignDefaultAddonVals(t *testing.T) {
 	// More checking to verify default interpolation
 	customAddon = api.KubernetesAddon{
 		Name:    addonName,
-		Enabled: pointerToBool(true),
+		Enabled: helpers.PointerToBool(true),
 		Containers: []api.KubernetesContainerSpec{
 			{
 				Name:         addonName,
@@ -277,14 +278,6 @@ func TestAssignDefaultAddonVals(t *testing.T) {
 		t.Fatalf("assignDefaultAddonVals() should not have modified Containers 'MemoryLimits' value %s to %s,", customAddon.Containers[0].MemoryLimits, modifiedAddon.Containers[0].MemoryLimits)
 	}
 
-}
-
-func TestPointerToBool(t *testing.T) {
-	boolVar := true
-	ret := pointerToBool(boolVar)
-	if *ret != boolVar {
-		t.Fatalf("expected pointerToBool(true) to return *true, instead returned %#v", ret)
-	}
 }
 
 func TestKubeletFeatureGatesEnsureAcceleratorsOnAgentsFor1_6_0(t *testing.T) {
@@ -333,10 +326,67 @@ func TestKubeletFeatureGatesEnsureMasterAndAgentConfigUsedFor1_6_0(t *testing.T)
 	}
 }
 
+func TestEtcdDiskSize(t *testing.T) {
+	mockCS := getMockBaseContainerService("1.8.10")
+	properties := mockCS.Properties
+	properties.OrchestratorProfile.OrchestratorType = "Kubernetes"
+	properties.MasterProfile.Count = 1
+	setOrchestratorDefaults(&mockCS)
+	if properties.OrchestratorProfile.KubernetesConfig.EtcdDiskSizeGB != DefaultEtcdDiskSize {
+		t.Fatalf("EtcdDiskSizeGB did not have the expected size, got %s, expected %s",
+			properties.OrchestratorProfile.KubernetesConfig.EtcdDiskSizeGB, DefaultEtcdDiskSize)
+	}
+
+	mockCS = getMockBaseContainerService("1.8.10")
+	properties = mockCS.Properties
+	properties.OrchestratorProfile.OrchestratorType = "Kubernetes"
+	properties.MasterProfile.Count = 5
+	setOrchestratorDefaults(&mockCS)
+	if properties.OrchestratorProfile.KubernetesConfig.EtcdDiskSizeGB != DefaultEtcdDiskSizeGT3Nodes {
+		t.Fatalf("EtcdDiskSizeGB did not have the expected size, got %s, expected %s",
+			properties.OrchestratorProfile.KubernetesConfig.EtcdDiskSizeGB, DefaultEtcdDiskSizeGT3Nodes)
+	}
+
+	mockCS = getMockBaseContainerService("1.8.10")
+	properties = mockCS.Properties
+	properties.OrchestratorProfile.OrchestratorType = "Kubernetes"
+	properties.MasterProfile.Count = 5
+	properties.AgentPoolProfiles[0].Count = 6
+	setOrchestratorDefaults(&mockCS)
+	if properties.OrchestratorProfile.KubernetesConfig.EtcdDiskSizeGB != DefaultEtcdDiskSizeGT10Nodes {
+		t.Fatalf("EtcdDiskSizeGB did not have the expected size, got %s, expected %s",
+			properties.OrchestratorProfile.KubernetesConfig.EtcdDiskSizeGB, DefaultEtcdDiskSizeGT10Nodes)
+	}
+
+	mockCS = getMockBaseContainerService("1.8.10")
+	properties = mockCS.Properties
+	properties.OrchestratorProfile.OrchestratorType = "Kubernetes"
+	properties.MasterProfile.Count = 5
+	properties.AgentPoolProfiles[0].Count = 16
+	setOrchestratorDefaults(&mockCS)
+	if properties.OrchestratorProfile.KubernetesConfig.EtcdDiskSizeGB != DefaultEtcdDiskSizeGT20Nodes {
+		t.Fatalf("EtcdDiskSizeGB did not have the expected size, got %s, expected %s",
+			properties.OrchestratorProfile.KubernetesConfig.EtcdDiskSizeGB, DefaultEtcdDiskSizeGT20Nodes)
+	}
+
+	mockCS = getMockBaseContainerService("1.8.10")
+	properties = mockCS.Properties
+	properties.OrchestratorProfile.OrchestratorType = "Kubernetes"
+	properties.MasterProfile.Count = 5
+	properties.AgentPoolProfiles[0].Count = 50
+	customEtcdDiskSize := "512"
+	properties.OrchestratorProfile.KubernetesConfig.EtcdDiskSizeGB = customEtcdDiskSize
+	setOrchestratorDefaults(&mockCS)
+	if properties.OrchestratorProfile.KubernetesConfig.EtcdDiskSizeGB != customEtcdDiskSize {
+		t.Fatalf("EtcdDiskSizeGB did not have the expected size, got %s, expected %s",
+			properties.OrchestratorProfile.KubernetesConfig.EtcdDiskSizeGB, customEtcdDiskSize)
+	}
+}
+
 func getMockAddon(name string) api.KubernetesAddon {
 	return api.KubernetesAddon{
 		Name:    name,
-		Enabled: pointerToBool(true),
+		Enabled: helpers.PointerToBool(true),
 		Containers: []api.KubernetesContainerSpec{
 			{
 				Name:           name,

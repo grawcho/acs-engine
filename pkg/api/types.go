@@ -276,6 +276,7 @@ type KubernetesConfig struct {
 	ControllerManagerConfig          map[string]string `json:"controllerManagerConfig,omitempty"`
 	CloudControllerManagerConfig     map[string]string `json:"cloudControllerManagerConfig,omitempty"`
 	APIServerConfig                  map[string]string `json:"apiServerConfig,omitempty"`
+	SchedulerConfig                  map[string]string `json:"schedulerConfig,omitempty"`
 	CloudProviderBackoff             bool              `json:"cloudProviderBackoff,omitempty"`
 	CloudProviderBackoffRetries      int               `json:"cloudProviderBackoffRetries,omitempty"`
 	CloudProviderBackoffJitter       float64           `json:"cloudProviderBackoffJitter,omitempty"`
@@ -319,11 +320,18 @@ type MasterProfile struct {
 	Extensions               []Extension       `json:"extensions"`
 	Distro                   Distro            `json:"distro,omitempty"`
 	KubernetesConfig         *KubernetesConfig `json:"kubernetesConfig,omitempty"`
+	ImageRef                 *ImageReference   `json:"imageReference,omitempty"`
 
 	// Master LB public endpoint/FQDN with port
 	// The format will be FQDN:2376
 	// Not used during PUT, returned as part of GET
 	FQDN string `json:"fqdn,omitempty"`
+}
+
+// ImageReference represents a reference to an Image resource in Azure.
+type ImageReference struct {
+	Name          string `json:"name,omitempty"`
+	ResourceGroup string `json:"resourceGroup,omitempty"`
 }
 
 // ExtensionProfile represents an extension definition
@@ -367,6 +375,7 @@ type AgentPoolProfile struct {
 	PreprovisionExtension *Extension        `json:"preProvisionExtension"`
 	Extensions            []Extension       `json:"extensions"`
 	KubernetesConfig      *KubernetesConfig `json:"kubernetesConfig,omitempty"`
+	ImageRef              *ImageReference   `json:"imageReference,omitempty"`
 }
 
 // DiagnosticsProfile setting to enable/disable capturing
@@ -561,6 +570,18 @@ func (p *Properties) HasStorageAccountDisks() bool {
 		return true
 	}
 	return false
+}
+
+// TotalNodes returns the total number of nodes in the cluster configuration
+func (p *Properties) TotalNodes() int {
+	var totalNodes int
+	if p.MasterProfile != nil {
+		totalNodes = p.MasterProfile.Count
+	}
+	for _, pool := range p.AgentPoolProfiles {
+		totalNodes = totalNodes + pool.Count
+	}
+	return totalNodes
 }
 
 // IsCustomVNET returns true if the customer brought their own VNET

@@ -691,6 +691,7 @@ func convertKubernetesConfigToVLabs(api *KubernetesConfig, vlabs *vlabs.Kubernet
 	convertControllerManagerConfigToVlabs(api, vlabs)
 	convertCloudControllerManagerConfigToVlabs(api, vlabs)
 	convertAPIServerConfigToVlabs(api, vlabs)
+	convertSchedulerConfigToVlabs(api, vlabs)
 	convertPrivateClusterToVlabs(api, vlabs)
 }
 
@@ -719,6 +720,13 @@ func convertAPIServerConfigToVlabs(a *KubernetesConfig, v *vlabs.KubernetesConfi
 	v.APIServerConfig = map[string]string{}
 	for key, val := range a.APIServerConfig {
 		v.APIServerConfig[key] = val
+	}
+}
+
+func convertSchedulerConfigToVlabs(a *KubernetesConfig, v *vlabs.KubernetesConfig) {
+	v.SchedulerConfig = map[string]string{}
+	for key, val := range a.SchedulerConfig {
+		v.SchedulerConfig[key] = val
 	}
 }
 
@@ -829,6 +837,11 @@ func convertMasterProfileToVLabs(api *MasterProfile, vlabsProfile *vlabs.MasterP
 		vlabsProfile.KubernetesConfig = &vlabs.KubernetesConfig{}
 		convertKubernetesConfigToVLabs(api.KubernetesConfig, vlabsProfile.KubernetesConfig)
 	}
+	if api.ImageRef != nil {
+		vlabsProfile.ImageRef = &vlabs.ImageReference{}
+		vlabsProfile.ImageRef.Name = api.ImageRef.Name
+		vlabsProfile.ImageRef.ResourceGroup = api.ImageRef.ResourceGroup
+	}
 }
 
 func convertKeyVaultSecretsToVlabs(api *KeyVaultSecrets, vlabsSecrets *vlabs.KeyVaultSecrets) {
@@ -924,6 +937,11 @@ func convertAgentPoolProfileToVLabs(api *AgentPoolProfile, p *vlabs.AgentPoolPro
 	if api.KubernetesConfig != nil {
 		p.KubernetesConfig = &vlabs.KubernetesConfig{}
 		convertKubernetesConfigToVLabs(api.KubernetesConfig, p.KubernetesConfig)
+	}
+	if api.ImageRef != nil {
+		p.ImageRef = &vlabs.ImageReference{}
+		p.ImageRef.Name = api.ImageRef.Name
+		p.ImageRef.ResourceGroup = api.ImageRef.ResourceGroup
 	}
 }
 
