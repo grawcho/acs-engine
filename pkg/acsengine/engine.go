@@ -43,8 +43,9 @@ const (
 
 const (
 	dcosCustomData188    = "dcos/dcoscustomdata188.t"
-	dcosCustomData190    = "dcos/dcoscustomdata190.t"
+	dcosCustomData198    = "dcos/dcoscustomdata198.t"
 	dcosCustomData110    = "dcos/dcoscustomdata110.t"
+	dcosCustomData111    = "dcos/dcoscustomdata111.t"
 	dcosProvision        = "dcos/dcosprovision.sh"
 	dcosWindowsProvision = "dcos/dcosWindowsProvision.ps1"
 )
@@ -707,15 +708,21 @@ func getParameters(cs *api.ContainerService, isClassicMode bool, generatorCode s
 	if strings.HasPrefix(properties.OrchestratorProfile.OrchestratorType, api.DCOS) {
 		dcosBootstrapURL := cloudSpecConfig.DCOSSpecConfig.DCOS188BootstrapDownloadURL
 		dcosWindowsBootstrapURL := cloudSpecConfig.DCOSSpecConfig.DCOSWindowsBootstrapDownloadURL
+		dcosRepositoryURL := cloudSpecConfig.DCOSSpecConfig.DcosRepositoryURL
+		dcosClusterPackageListID := cloudSpecConfig.DCOSSpecConfig.DcosClusterPackageListID
+		dcosProviderPackageID := cloudSpecConfig.DCOSSpecConfig.DcosProviderPackageID
+
 		switch properties.OrchestratorProfile.OrchestratorType {
 		case api.DCOS:
 			switch properties.OrchestratorProfile.OrchestratorVersion {
 			case api.DCOSVersion1Dot8Dot8:
 				dcosBootstrapURL = cloudSpecConfig.DCOSSpecConfig.DCOS188BootstrapDownloadURL
-			case api.DCOSVersion1Dot9Dot0:
-				dcosBootstrapURL = cloudSpecConfig.DCOSSpecConfig.DCOS190BootstrapDownloadURL
+			case api.DCOSVersion1Dot9Dot8:
+				dcosBootstrapURL = cloudSpecConfig.DCOSSpecConfig.DCOS198BootstrapDownloadURL
 			case api.DCOSVersion1Dot10Dot0:
 				dcosBootstrapURL = cloudSpecConfig.DCOSSpecConfig.DCOS110BootstrapDownloadURL
+			case api.DCOSVersion1Dot11Dot0:
+				dcosBootstrapURL = cloudSpecConfig.DCOSSpecConfig.DCOS111BootstrapDownloadURL
 			}
 		}
 
@@ -726,15 +733,41 @@ func getParameters(cs *api.ContainerService, isClassicMode bool, generatorCode s
 			if properties.OrchestratorProfile.DcosConfig.DcosBootstrapURL != "" {
 				dcosBootstrapURL = properties.OrchestratorProfile.DcosConfig.DcosBootstrapURL
 			}
-
 			if len(properties.OrchestratorProfile.DcosConfig.Registry) > 0 {
 				addValue(parametersMap, "registry", properties.OrchestratorProfile.DcosConfig.Registry)
 				addValue(parametersMap, "registryKey", base64.StdEncoding.EncodeToString([]byte(fmt.Sprintf("%s:%s", properties.OrchestratorProfile.DcosConfig.RegistryUser, properties.OrchestratorProfile.DcosConfig.RegistryPass))))
+			}
+			if properties.OrchestratorProfile.DcosConfig.DcosRepositoryURL != "" {
+				dcosRepositoryURL = properties.OrchestratorProfile.DcosConfig.DcosRepositoryURL
+			} else {
+				dcosRepositoryURL = getDCOSDefaultRepositoryURL(
+					properties.OrchestratorProfile.OrchestratorType,
+					properties.OrchestratorProfile.OrchestratorVersion)
+			}
+			if properties.OrchestratorProfile.DcosConfig.DcosClusterPackageListID != "" {
+				dcosClusterPackageListID = properties.OrchestratorProfile.DcosConfig.DcosClusterPackageListID
+			} else {
+				dcosClusterPackageListID = getDCOSDefaultClusterPackageListGUID(
+					properties.OrchestratorProfile.OrchestratorType,
+					properties.OrchestratorProfile.OrchestratorVersion,
+					properties.MasterProfile.Count)
+			}
+
+			if properties.OrchestratorProfile.DcosConfig.DcosProviderPackageID != "" {
+				dcosProviderPackageID = properties.OrchestratorProfile.DcosConfig.DcosProviderPackageID
+			} else {
+				dcosProviderPackageID = getDCOSDefaultProviderPackageGUID(
+					properties.OrchestratorProfile.OrchestratorType,
+					properties.OrchestratorProfile.OrchestratorVersion,
+					properties.MasterProfile.Count)
 			}
 		}
 
 		addValue(parametersMap, "dcosBootstrapURL", dcosBootstrapURL)
 		addValue(parametersMap, "dcosWindowsBootstrapURL", dcosWindowsBootstrapURL)
+		addValue(parametersMap, "dcosRepositoryURL", dcosRepositoryURL)
+		addValue(parametersMap, "dcosClusterPackageListID", dcosClusterPackageListID)
+		addValue(parametersMap, "dcosProviderPackageID", dcosProviderPackageID)
 	}
 
 	// Agent parameters
@@ -861,11 +894,15 @@ func (t *TemplateGenerator) getTemplateFuncMap(cs *api.ContainerService) templat
 		},
 		"IsDCOS19": func() bool {
 			return cs.Properties.OrchestratorProfile.OrchestratorType == api.DCOS &&
-				cs.Properties.OrchestratorProfile.OrchestratorVersion == api.DCOSVersion1Dot9Dot0
+				cs.Properties.OrchestratorProfile.OrchestratorVersion == api.DCOSVersion1Dot9Dot8
 		},
 		"IsDCOS110": func() bool {
 			return cs.Properties.OrchestratorProfile.OrchestratorType == api.DCOS &&
 				cs.Properties.OrchestratorProfile.OrchestratorVersion == api.DCOSVersion1Dot10Dot0
+		},
+		"IsDCOS111": func() bool {
+			return cs.Properties.OrchestratorProfile.OrchestratorType == api.DCOS &&
+				cs.Properties.OrchestratorProfile.OrchestratorVersion == api.DCOSVersion1Dot11Dot0
 		},
 		"IsKubernetesVersionGe": func(version string) bool {
 			orchestratorVersion, _ := semver.NewVersion(cs.Properties.OrchestratorProfile.OrchestratorVersion)
@@ -1772,9 +1809,18 @@ func getDCOSWindowsAgentPreprovisionParameters(cs *api.ContainerService, profile
 	return parms
 }
 
-func getPackageGUID(orchestratorType string, orchestratorVersion string, masterCount int) string {
+func getDCOSDefaultProviderPackageGUID(orchestratorType string, orchestratorVersion string, masterCount int) string {
 	if orchestratorType == api.DCOS {
 		switch orchestratorVersion {
+		case api.DCOSVersion1Dot11Dot0:
+			switch masterCount {
+			case 1:
+				return "5a6b7b92820dc4a7825c84f0a96e012e0fcc8a6b"
+			case 3:
+				return "327392a609d77d411886216d431e00581a8612f7"
+			case 5:
+				return "fd24e32755e7868841a3fafd21b2d2cce0aa4154"
+			}
 		case api.DCOSVersion1Dot10Dot0:
 			switch masterCount {
 			case 1:
@@ -1784,14 +1830,14 @@ func getPackageGUID(orchestratorType string, orchestratorVersion string, masterC
 			case 5:
 				return "f286ad9d3641da5abb622e4a8781f73ecd8492fa"
 			}
-		case api.DCOSVersion1Dot9Dot0:
+		case api.DCOSVersion1Dot9Dot8:
 			switch masterCount {
 			case 1:
-				return "bcc883b7a3191412cf41824bdee06c1142187a0b"
+				return "e8b0e3fc4a16394dc6dd5b19fc54bf1543bff429"
 			case 3:
-				return "dcff7e24c0c1827bebeb7f1a806f558054481b33"
+				return "2d36c3f570d9dd7d187c699f9a322ed9d95e7dfa"
 			case 5:
-				return "b41bfa84137a6374b2ff5eb1655364d7302bd257"
+				return "c03c9587f88929f310b80af4f448b7b51654f1c8"
 			}
 		case api.DCOSVersion1Dot8Dot8:
 			switch masterCount {
@@ -1802,6 +1848,41 @@ func getPackageGUID(orchestratorType string, orchestratorVersion string, masterC
 			case 5:
 				return "d9b61156dfcc9383e014851529738aa550ef57d9"
 			}
+		}
+	}
+	return ""
+}
+
+func getDCOSDefaultRepositoryURL(orchestratorType string, orchestratorVersion string) string {
+	if orchestratorType == api.DCOS {
+		switch orchestratorVersion {
+		case api.DCOSVersion1Dot11Dot0:
+			return "https://dcosio.azureedge.net/dcos/stable/1.11.0"
+		case api.DCOSVersion1Dot10Dot0:
+			return "https://dcosio.azureedge.net/dcos/stable/1.10.0"
+		case api.DCOSVersion1Dot9Dot8:
+			return "https://dcosio.azureedge.net/dcos/stable/1.9.8"
+		default:
+			return "https://dcosio.azureedge.net/dcos/stable"
+		}
+	}
+	return ""
+}
+
+func getDCOSDefaultClusterPackageListGUID(orchestratorType string, orchestratorVersion string, masterCount int) string {
+	if orchestratorType == api.DCOS {
+		switch orchestratorVersion {
+		case api.DCOSVersion1Dot11Dot0:
+			switch masterCount {
+			case 1:
+				return "eee6337ea89c74ba58986406d24e373bdeae8012"
+			case 3:
+				return "248a66388bba1adbcb14a52fd3b7b424ab06fa76"
+			case 5:
+				return "302987609a34f07c206da1791c5a553141416ad8"
+			}
+		default:
+			break
 		}
 	}
 	return ""
@@ -2268,10 +2349,12 @@ func getSingleLineDCOSCustomData(orchestratorType, orchestratorVersion string,
 		switch orchestratorVersion {
 		case api.DCOSVersion1Dot8Dot8:
 			yamlFilename = dcosCustomData188
-		case api.DCOSVersion1Dot9Dot0:
-			yamlFilename = dcosCustomData190
+		case api.DCOSVersion1Dot9Dot8:
+			yamlFilename = dcosCustomData198
 		case api.DCOSVersion1Dot10Dot0:
 			yamlFilename = dcosCustomData110
+		case api.DCOSVersion1Dot11Dot0:
+			yamlFilename = dcosCustomData111
 		}
 	default:
 		// it is a bug to get here
@@ -2313,8 +2396,6 @@ func getSingleLineDCOSCustomData(orchestratorType, orchestratorVersion string,
 	yamlStr = rVariable.ReplaceAllString(yamlStr, "',variables('$1'),'")
 
 	// replace the internal values
-	guid := getPackageGUID(orchestratorType, orchestratorVersion, masterCount)
-	yamlStr = strings.Replace(yamlStr, "DCOSGUID", guid, -1)
 	publicIPStr := getDCOSCustomDataPublicIPStr(orchestratorType, masterCount)
 	yamlStr = strings.Replace(yamlStr, "DCOSCUSTOMDATAPUBLICIPSTR", publicIPStr, -1)
 

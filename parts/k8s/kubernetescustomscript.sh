@@ -23,25 +23,13 @@ fi
 ensureRunCommandCompleted()
 {
     echo "waiting for runcmd to finish"
-    for i in {1..900}; do
-        if [ -e /opt/azure/containers/runcmd.complete ]; then
-            echo "runcmd finished, took $i seconds"
-            break
-        fi
-        sleep 1
-    done
+    wait_for_file 900 1 /opt/azure/containers/runcmd.complete
 }
 
 ensureDockerInstallCompleted()
 {
     echo "waiting for docker install to finish"
-    for i in {1..900}; do
-        if [ -e /opt/azure/containers/dockerinstall.complete ]; then
-            echo "docker install finished, took $i seconds"
-            break
-        fi
-        sleep 1
-    done
+    wait_for_file 3600 1 /opt/azure/containers/dockerinstall.complete
 }
 
 echo `date`,`hostname`, startscript>>/opt/m
@@ -170,21 +158,7 @@ function ensureFilepath() {
     if $REBOOTREQUIRED; then
         return
     fi
-    found=1
-    for i in {1..600}; do
-        if [ -e $1 ]
-        then
-            found=0
-            echo "$1 is present, took $i seconds to verify"
-            break
-        fi
-        sleep 1
-    done
-    if [ $found -ne 0 ]
-    then
-        echo "$1 is not present after $i seconds of trying to verify"
-        exit 1
-    fi
+    wait_for_file 600 1 $1
 }
 
 function setKubeletOpts () {
@@ -249,8 +223,8 @@ function installClearContainersRuntime() {
 
 	# Enable and start Clear Containers proxy service
 	echo "Enabling and starting Clear Containers proxy service..."
-	systemctl enable cc-proxy
-	systemctl start cc-proxy
+	systemctlEnableAndCheck cc-proxy
+	retrycmd_if_failure 100 1 10 systemctl daemon-reload && systemctl restart cc-proxy
 
 	setKubeletOpts " --container-runtime=remote --runtime-request-timeout=15m --container-runtime-endpoint=unix:///run/containerd/containerd.sock"
 }
@@ -290,7 +264,7 @@ function ensureContainerd() {
 			# Make sure this is done after networking plugins are installed
 			echo "Enabling and starting cri-containerd service..."
 			systemctl enable containerd
-			systemctl start containerd
+			retrycmd_if_failure 100 1 10 systemctl daemon-reload && systemctl restart containerd
 		fi
 	fi
 }
@@ -321,23 +295,7 @@ function ensureDocker() {
     systemctlEnableAndCheck docker
     # only start if a reboot is not required
     if ! $REBOOTREQUIRED; then
-        dockerStarted=1
-        for i in {1..900}; do
-            if ! timeout 10s $DOCKER info; then
-                echo "status $?"
-                timeout 60s /bin/systemctl restart docker
-            else
-                echo "docker started, took $i seconds"
-                dockerStarted=0
-                break
-            fi
-            sleep 1
-        done
-        if [ $dockerStarted -ne 0 ]
-        then
-            echo "docker did not start"
-            exit 2
-        fi
+        retrycmd_if_failure 900 1 60 systemctl daemon-reload && systemctl restart docker
     fi
 }
 
@@ -345,7 +303,7 @@ function ensureKubelet() {
     systemctlEnableAndCheck kubelet
     # only start if a reboot is not required
     if ! $REBOOTREQUIRED; then
-        systemctl restart kubelet
+        retrycmd_if_failure 100 1 10 systemctl daemon-reload && systemctl restart kubelet
     fi
 }
 
@@ -354,7 +312,7 @@ function extractHyperkube(){
     systemctlEnableAndCheck hyperkube-extract
     # only start if a reboot is not required
     if ! $REBOOTREQUIRED; then
-        systemctl restart hyperkube-extract
+        retrycmd_if_failure 100 1 10 systemctl daemon-reload && systemctl restart hyperkube-extract
     fi
 }
 
@@ -367,7 +325,7 @@ function ensureJournal(){
     echo "ForwardToSyslog=no" >> /etc/systemd/journald.conf
     # only start if a reboot is not required
     if ! $REBOOTREQUIRED; then
-        systemctl restart systemd-journald.service
+        retrycmd_if_failure 100 1 10 systemctl daemon-reload && systemctl restart systemd-journald.service
     fi
 }
 
@@ -378,13 +336,7 @@ function ensureK8s() {
     k8sHealthy=1
     nodesActive=1
     nodesReady=1
-    for i in {1..600}; do
-        if [ -e $KUBECTL ]
-        then
-            break
-        fi
-        sleep 1
-    done
+    wait_for_file 600 1 $KUBECTL
     for i in {1..600}; do
         $KUBECTL 2>/dev/null cluster-info
             if [ "$?" = "0" ]
@@ -400,6 +352,7 @@ function ensureK8s() {
         echo "k8s cluster is not healthy after $i seconds"
         exit 3
     fi
+    ensurePodSecurityPolicy
     for i in {1..1800}; do
         nodes=$(${KUBECTL} get nodes 2>/dev/null | grep 'Ready' | wc -l)
             if [ $nodes -eq $TOTAL_NODES ]
@@ -570,7 +523,6 @@ if [[ ! -z "${MASTER_NODE}" ]]; then
     ensureEtcdDataDir
     ensureEtcd
     ensureK8s
-    ensurePodSecurityPolicy
 fi
 
 if [[ $OS == $UBUNTU_OS_NAME ]]; then
