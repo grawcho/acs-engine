@@ -59,12 +59,21 @@ type Properties struct {
 	CustomProfile           *CustomProfile           `json:"customProfile,omitempty"`
 	HostedMasterProfile     *HostedMasterProfile     `json:"hostedMasterProfile,omitempty"`
 	AddonProfiles           map[string]AddonProfile  `json:"addonProfiles,omitempty"`
+	AzProfile               *AzProfile               `json:"azProfile,omitempty"`
 }
 
 // AddonProfile represents an addon for managed cluster
 type AddonProfile struct {
 	Enabled bool              `json:"enabled"`
 	Config  map[string]string `json:"config"`
+}
+
+// AzProfile holds the azure context for where the cluster resides
+type AzProfile struct {
+	TenantID       string `json:"tenantId,omitempty"`
+	SubscriptionID string `json:"subscriptionId,omitempty"`
+	ResourceGroup  string `json:"resourceGroup,omitempty"`
+	Location       string `json:"location,omitempty"`
 }
 
 // ServicePrincipalProfile contains the client and secret used by the cluster for Azure Resource CRUD
@@ -136,6 +145,9 @@ type WindowsProfile struct {
 	AdminPassword         string            `json:"adminPassword"`
 	ImageVersion          string            `json:"imageVersion"`
 	WindowsImageSourceURL string            `json:"windowsImageSourceURL"`
+	WindowsPublisher      string            `json:"windowsPublisher"`
+	WindowsOffer          string            `json:"windowsOffer"`
+	WindowsSku            string            `json:"windowsSku"`
 	Secrets               []KeyVaultSecrets `json:"secrets,omitempty"`
 }
 
@@ -165,6 +177,7 @@ type OrchestratorProfile struct {
 	OrchestratorType    string            `json:"orchestratorType"`
 	OrchestratorVersion string            `json:"orchestratorVersion"`
 	KubernetesConfig    *KubernetesConfig `json:"kubernetesConfig,omitempty"`
+	OpenShiftConfig     *OpenShiftConfig  `json:"openshiftConfig,omitempty"`
 	DcosConfig          *DcosConfig       `json:"dcosConfig,omitempty"`
 }
 
@@ -305,6 +318,20 @@ type DcosConfig struct {
 	DcosProviderPackageID    string `json:"dcosProviderPackageID,omitempty"`    // repo url is the location of the build,
 }
 
+// OpenShiftConfig holds configuration for OpenShift
+type OpenShiftConfig struct {
+	KubernetesConfig *KubernetesConfig `json:"kubernetesConfig,omitempty"`
+
+	// ClusterUsername and ClusterPassword are temporary before AAD
+	// authentication is enabled, and will be removed subsequently.
+	ClusterUsername string `json:"clusterUsername,omitempty"`
+	ClusterPassword string `json:"clusterPassword,omitempty"`
+
+	ConfigBundles          map[string][]byte `json:"-"`
+	ExternalMasterHostname string            `json:"-"`
+	RouterLBHostname       string            `json:"-"`
+}
+
 // MasterProfile represents the definition of the master cluster
 type MasterProfile struct {
 	Count                    int               `json:"count"`
@@ -358,20 +385,21 @@ type Extension struct {
 
 // AgentPoolProfile represents an agent pool definition
 type AgentPoolProfile struct {
-	Name                string `json:"name"`
-	Count               int    `json:"count"`
-	VMSize              string `json:"vmSize"`
-	OSDiskSizeGB        int    `json:"osDiskSizeGB,omitempty"`
-	DNSPrefix           string `json:"dnsPrefix,omitempty"`
-	OSType              OSType `json:"osType,omitempty"`
-	Ports               []int  `json:"ports,omitempty"`
-	AvailabilityProfile string `json:"availabilityProfile"`
-	StorageProfile      string `json:"storageProfile,omitempty"`
-	DiskSizesGB         []int  `json:"diskSizesGB,omitempty"`
-	VnetSubnetID        string `json:"vnetSubnetID,omitempty"`
-	Subnet              string `json:"subnet"`
-	IPAddressCount      int    `json:"ipAddressCount,omitempty"`
-	Distro              Distro `json:"distro,omitempty"`
+	Name                string               `json:"name"`
+	Count               int                  `json:"count"`
+	VMSize              string               `json:"vmSize"`
+	OSDiskSizeGB        int                  `json:"osDiskSizeGB,omitempty"`
+	DNSPrefix           string               `json:"dnsPrefix,omitempty"`
+	OSType              OSType               `json:"osType,omitempty"`
+	Ports               []int                `json:"ports,omitempty"`
+	AvailabilityProfile string               `json:"availabilityProfile"`
+	StorageProfile      string               `json:"storageProfile,omitempty"`
+	DiskSizesGB         []int                `json:"diskSizesGB,omitempty"`
+	VnetSubnetID        string               `json:"vnetSubnetID,omitempty"`
+	Subnet              string               `json:"subnet"`
+	IPAddressCount      int                  `json:"ipAddressCount,omitempty"`
+	Distro              Distro               `json:"distro,omitempty"`
+	Role                AgentPoolProfileRole `json:"role,omitempty"`
 
 	FQDN                  string            `json:"fqdn,omitempty"`
 	CustomNodeLabels      map[string]string `json:"customNodeLabels,omitempty"`
@@ -380,6 +408,9 @@ type AgentPoolProfile struct {
 	KubernetesConfig      *KubernetesConfig `json:"kubernetesConfig,omitempty"`
 	ImageRef              *ImageReference   `json:"imageReference,omitempty"`
 }
+
+// AgentPoolProfileRole represents an agent role
+type AgentPoolProfileRole string
 
 // DiagnosticsProfile setting to enable/disable capturing
 // diagnostics for VMs hosting container cluster.
@@ -561,6 +592,9 @@ func (p *Properties) HasManagedDisks() bool {
 
 // HasStorageAccountDisks returns true if the cluster contains Storage Account Disks
 func (p *Properties) HasStorageAccountDisks() bool {
+	if p.OrchestratorProfile.OrchestratorType == OpenShift {
+		return true
+	}
 	if p.MasterProfile != nil && p.MasterProfile.StorageProfile == StorageAccount {
 		return true
 	}
@@ -680,6 +714,11 @@ func (o *OrchestratorProfile) IsSwarmMode() bool {
 // IsKubernetes returns true if this template is for Kubernetes orchestrator
 func (o *OrchestratorProfile) IsKubernetes() bool {
 	return o.OrchestratorType == Kubernetes
+}
+
+// IsOpenShift returns true if this template is for OpenShift orchestrator
+func (o *OrchestratorProfile) IsOpenShift() bool {
+	return o.OrchestratorType == OpenShift
 }
 
 // IsDCOS returns true if this template is for DCOS orchestrator

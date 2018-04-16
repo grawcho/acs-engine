@@ -85,13 +85,11 @@ func (cli *CLIProvisioner) provision() error {
 	outputPath := filepath.Join(cli.Config.CurrentWorkingDir, "_output")
 	os.Mkdir(outputPath, 0755)
 
-	if cli.Config.SoakClusterName == "" {
-		cmd := exec.Command("ssh-keygen", "-f", cli.Config.GetSSHKeyPath(), "-q", "-N", "", "-b", "2048", "-t", "rsa")
-		util.PrintCommand(cmd)
-		out, err := cmd.CombinedOutput()
-		if err != nil {
-			return fmt.Errorf("Error while trying to generate ssh key:%s\nOutput:%s", err, out)
-		}
+	cmd := exec.Command("ssh-keygen", "-f", cli.Config.GetSSHKeyPath(), "-q", "-N", "", "-b", "2048", "-t", "rsa")
+	util.PrintCommand(cmd)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("Error while trying to generate ssh key:%s\nOutput:%s", err, out)
 	}
 
 	publicSSHKey, err := cli.Config.ReadPublicSSHKey()
@@ -233,7 +231,8 @@ func (cli *CLIProvisioner) FetchProvisioningMetrics(path string, cfg *config.Con
 	agentFiles := []string{"/var/log/azure/cluster-provision.log", "/var/log/cloud-init.log",
 		"/var/log/cloud-init-output.log", "/var/log/syslog", "/var/log/azure/custom-script/handler.log",
 		"/opt/m", "/opt/azure/containers/kubelet.sh", "/opt/azure/containers/provision.sh",
-		"/opt/azure/provision-ps.log", "/var/log/azure/dnsdump.pcap"}
+		"/opt/azure/provision-ps.log", "/var/log/azure/kubelet-status.log", "/var/log/azure/hyperkube-extract-status.log",
+		"/var/log/azure/docker-status.log", "/var/log/azure/systemd-journald-status.log"}
 	masterFiles := agentFiles
 	masterFiles = append(masterFiles, "/opt/azure/containers/mountetcd.sh", "/opt/azure/containers/setup-etcd.sh", "/opt/azure/containers/setup-etcd.log")
 	hostname := fmt.Sprintf("%s.%s.cloudapp.azure.com", cli.Config.Name, cli.Config.Location)
