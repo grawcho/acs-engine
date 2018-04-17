@@ -2,27 +2,21 @@
   "apiVersion": "vlabs",
   "properties": {
     "orchestratorProfile": {
-      "orchestratorType": "Kubernetes"
+      "orchestratorType": "Kubernetes",
+      "orchestratorRelease": "1.10",
+      "kubernetesConfig": {
+        "enableEncryptionWithExternalKms": true
+      }
     },
     "masterProfile": {
-      "imageReference": {
-        "name": "stretch",
-        "resourceGroup": "debian"
-      },
       "count": 1,
       "dnsPrefix": "",
-      "storageProfile": "ManagedDisks",
       "vmSize": "Standard_D2_v2"
     },
     "agentPoolProfiles": [
       {
         "name": "agentpool1",
-        "count": 3,
-        "imageReference": {
-          "name": "stretch",
-          "resourceGroup": "debian"
-        },
-        "storageProfile": "ManagedDisks",
+        "count": 1,
         "vmSize": "Standard_D2_v2",
         "availabilityProfile": "AvailabilitySet"
       }
@@ -39,7 +33,8 @@
     },
     "servicePrincipalProfile": {
       "clientId": "",
-      "secret": ""
+      "secret": "",
+      "objectId": ""
     }
   }
 }
