@@ -11,6 +11,7 @@ import (
 	"github.com/Azure/acs-engine/pkg/acsengine"
 	"github.com/Azure/acs-engine/pkg/api"
 	"github.com/Azure/acs-engine/pkg/armhelpers"
+	"github.com/Azure/acs-engine/pkg/helpers"
 	"github.com/Azure/acs-engine/pkg/i18n"
 	"github.com/Azure/acs-engine/pkg/operations/kubernetesupgrade"
 	"github.com/leonelquinteros/gotext"
@@ -21,8 +22,8 @@ import (
 
 const (
 	upgradeName             = "upgrade"
-	upgradeShortDescription = "upgrades an existing Kubernetes cluster"
-	upgradeLongDescription  = "upgrades an existing Kubernetes cluster, first replacing masters, then nodes"
+	upgradeShortDescription = "Upgrade an existing Kubernetes cluster"
+	upgradeLongDescription  = "Upgrade an existing Kubernetes cluster, one minor version at a time"
 )
 
 type upgradeCmd struct {
@@ -87,6 +88,8 @@ func (uc *upgradeCmd) validate(cmd *cobra.Command, args []string) {
 	if uc.location == "" {
 		cmd.Usage()
 		log.Fatal("--location must be specified")
+	} else {
+		uc.location = helpers.NormalizeAzureRegion(uc.location)
 	}
 
 	if uc.timeoutInMinutes != -1 {
@@ -208,7 +211,7 @@ func (uc *upgradeCmd) run(cmd *cobra.Command, args []string) error {
 	}
 
 	if err = upgradeCluster.UpgradeCluster(uc.authArgs.SubscriptionID, kubeConfig, uc.resourceGroupName,
-		uc.containerService, uc.nameSuffix, uc.agentPoolsToUpgrade); err != nil {
+		uc.containerService, uc.nameSuffix, uc.agentPoolsToUpgrade, BuildTag); err != nil {
 		log.Fatalf("Error upgrading cluster: %v\n", err)
 	}
 
