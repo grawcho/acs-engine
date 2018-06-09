@@ -18,8 +18,11 @@ import (
 )
 
 var (
-	cfg config.Config
-	eng engine.Engine
+	cfg         config.Config
+	eng         engine.Engine
+	ch          = make(chan os.Signal, 1)
+	failed      bool
+	interrupted bool
 )
 
 var _ = BeforeSuite(func() {
@@ -56,6 +59,32 @@ var _ = Describe("Azure Container Cluster using the OpenShift Orchestrator", fun
 		Expect(ready).To(Equal(true))
 	})
 
+	It("should label nodes correctly", func() {
+		labels := map[string]map[string]string{
+			"master": {
+				"node-role.kubernetes.io/master": "true",
+				"openshift-infra":                "apiserver",
+			},
+			"compute": {
+				"node-role.kubernetes.io/compute": "true",
+				"region": "primary",
+			},
+			"infra": {
+				"region": "infra",
+			},
+		}
+		list, err := knode.Get()
+		Expect(err).NotTo(HaveOccurred())
+
+		for _, node := range list.Nodes {
+			kind := strings.Split(node.Metadata.Name, "-")[1]
+			Expect(labels).To(HaveKey(kind))
+			for k, v := range labels[kind] {
+				Expect(node.Metadata.Labels).To(HaveKeyWithValue(k, v))
+			}
+		}
+	})
+
 	It("should be running the expected version", func() {
 		version, err := node.Version()
 		Expect(err).NotTo(HaveOccurred())
@@ -79,7 +108,11 @@ var _ = Describe("Azure Container Cluster using the OpenShift Orchestrator", fun
 				false)
 		}
 		expectedVersionRationalized := strings.Split(expectedVersion, "-")[0] // to account for -alpha and -beta suffixes
-		Expect(version).To(Equal("v" + expectedVersionRationalized))
+
+		// skip unstable test as the version will constantly be changing
+		if expectedVersionRationalized != "unstable" {
+			Expect(version).To(Equal("v" + expectedVersionRationalized))
+		}
 	})
 
 	It("should have router running", func() {
@@ -94,16 +127,19 @@ var _ = Describe("Azure Container Cluster using the OpenShift Orchestrator", fun
 		Expect(running).To(Equal(true))
 	})
 
+	It("should have registry-console running", func() {
+		running, err := pod.WaitOnReady("registry-console", "default", 3, 30*time.Second, cfg.Timeout)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(running).To(Equal(true))
+	})
+
 	It("should deploy a sample app and access it via a route", func() {
-		err := util.CreateFromTemplate("nginx-example", "openshift", "default")
-		if err != nil && strings.Contains(err.Error(), "AlreadyExists") {
-			err = nil
-		}
+		err := util.ApplyFromTemplate("nginx-example", "openshift", "default")
 		Expect(err).NotTo(HaveOccurred())
 		Expect(util.WaitForDeploymentConfig("nginx-example", "default")).NotTo(HaveOccurred())
 		host, err := util.GetHost("nginx-example", "default")
 		Expect(err).NotTo(HaveOccurred())
-		Expect(util.TestHost(host, 10, 200*time.Microsecond)).NotTo(HaveOccurred())
+		Expect(util.TestHost(host, 10, 200*time.Millisecond)).NotTo(HaveOccurred())
 	})
 
 	It("should have the openshift webconsole running", func() {

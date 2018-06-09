@@ -5,8 +5,9 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/Masterminds/semver"
+	"github.com/blang/semver"
 
+	"github.com/Azure/acs-engine/pkg/api/common"
 	"github.com/Azure/acs-engine/pkg/api/v20160330"
 	"github.com/Azure/acs-engine/pkg/api/v20160930"
 	"github.com/Azure/acs-engine/pkg/api/v20170131"
@@ -554,6 +555,17 @@ func convertLinuxProfileToVLabs(obj *LinuxProfile, vlabsProfile *vlabs.LinuxProf
 		vlabsProfile.Secrets = append(vlabsProfile.Secrets, *secret)
 	}
 	vlabsProfile.ScriptRootURL = obj.ScriptRootURL
+	if obj.CustomSearchDomain != nil {
+		vlabsProfile.CustomSearchDomain = &vlabs.CustomSearchDomain{}
+		vlabsProfile.CustomSearchDomain.Name = obj.CustomSearchDomain.Name
+		vlabsProfile.CustomSearchDomain.RealmUser = obj.CustomSearchDomain.RealmUser
+		vlabsProfile.CustomSearchDomain.RealmPassword = obj.CustomSearchDomain.RealmPassword
+	}
+
+	if obj.CustomNodesDNS != nil {
+		vlabsProfile.CustomNodesDNS = &vlabs.CustomNodesDNS{}
+		vlabsProfile.CustomNodesDNS.DNSServer = obj.CustomNodesDNS.DNSServer
+	}
 }
 
 func convertWindowsProfileToV20160930(api *WindowsProfile, v20160930 *v20160930.WindowsProfile) {
@@ -633,8 +645,12 @@ func convertOrchestratorProfileToVLabs(api *OrchestratorProfile, o *vlabs.Orches
 
 	if api.OrchestratorVersion != "" {
 		o.OrchestratorVersion = api.OrchestratorVersion
-		sv, _ := semver.NewVersion(o.OrchestratorVersion)
-		o.OrchestratorRelease = fmt.Sprintf("%d.%d", sv.Major(), sv.Minor())
+		// Enable using "unstable" as a valid version in the openshift orchestrator.
+		// Required for progressing on an unreleased version.
+		if !api.IsOpenShift() || api.OrchestratorVersion != common.OpenShiftVersionUnstable {
+			sv, _ := semver.Make(o.OrchestratorVersion)
+			o.OrchestratorRelease = fmt.Sprintf("%d.%d", sv.Major, sv.Minor)
+		}
 	}
 
 	if api.KubernetesConfig != nil {
@@ -661,6 +677,7 @@ func convertOpenShiftConfigToVLabs(api *OpenShiftConfig, vl *vlabs.OpenShiftConf
 	vl.ClusterUsername = api.ClusterUsername
 	vl.ClusterPassword = api.ClusterPassword
 	vl.EnableAADAuthentication = api.EnableAADAuthentication
+	vl.ConfigBundles = api.ConfigBundles
 }
 
 func convertDcosConfigToVLabs(api *DcosConfig, vl *vlabs.DcosConfig) {
@@ -684,12 +701,11 @@ func convertDcosConfigToVLabs(api *DcosConfig, vl *vlabs.DcosConfig) {
 
 	if api.BootstrapProfile != nil {
 		vl.BootstrapProfile = &vlabs.BootstrapProfile{
-			Count:                    api.BootstrapProfile.Count,
-			VMSize:                   api.BootstrapProfile.VMSize,
-			OSDiskSizeGB:             api.BootstrapProfile.OSDiskSizeGB,
-			OAuthEnabled:             api.BootstrapProfile.OAuthEnabled,
-			FirstConsecutiveStaticIP: api.BootstrapProfile.FirstConsecutiveStaticIP,
-			Subnet: api.BootstrapProfile.Subnet,
+			VMSize:       api.BootstrapProfile.VMSize,
+			OSDiskSizeGB: api.BootstrapProfile.OSDiskSizeGB,
+			OAuthEnabled: api.BootstrapProfile.OAuthEnabled,
+			StaticIP:     api.BootstrapProfile.StaticIP,
+			Subnet:       api.BootstrapProfile.Subnet,
 		}
 	}
 }
@@ -742,6 +758,18 @@ func convertKubeletConfigToVlabs(a *KubernetesConfig, v *vlabs.KubernetesConfig)
 	v.KubeletConfig = map[string]string{}
 	for key, val := range a.KubeletConfig {
 		v.KubeletConfig[key] = val
+	}
+}
+
+func convertCustomFilesToVlabs(a *MasterProfile, v *vlabs.MasterProfile) {
+	if a.CustomFiles != nil {
+		v.CustomFiles = &[]vlabs.CustomFile{}
+		for i := range *a.CustomFiles {
+			*v.CustomFiles = append(*v.CustomFiles, vlabs.CustomFile{
+				Dest:   (*a.CustomFiles)[i].Dest,
+				Source: (*a.CustomFiles)[i].Source,
+			})
+		}
 	}
 }
 
@@ -886,6 +914,8 @@ func convertMasterProfileToVLabs(api *MasterProfile, vlabsProfile *vlabs.MasterP
 		vlabsProfile.ImageRef.Name = api.ImageRef.Name
 		vlabsProfile.ImageRef.ResourceGroup = api.ImageRef.ResourceGroup
 	}
+
+	convertCustomFilesToVlabs(api, vlabsProfile)
 }
 
 func convertKeyVaultSecretsToVlabs(api *KeyVaultSecrets, vlabsSecrets *vlabs.KeyVaultSecrets) {
@@ -954,6 +984,8 @@ func convertAgentPoolProfileToVLabs(api *AgentPoolProfile, p *vlabs.AgentPoolPro
 	p.Ports = []int{}
 	p.Ports = append(p.Ports, api.Ports...)
 	p.AvailabilityProfile = api.AvailabilityProfile
+	p.ScaleSetPriority = api.ScaleSetPriority
+	p.ScaleSetEvictionPolicy = api.ScaleSetEvictionPolicy
 	p.StorageProfile = api.StorageProfile
 	p.DiskSizesGB = []int{}
 	p.DiskSizesGB = append(p.DiskSizesGB, api.DiskSizesGB...)
@@ -961,6 +993,8 @@ func convertAgentPoolProfileToVLabs(api *AgentPoolProfile, p *vlabs.AgentPoolPro
 	p.SetSubnet(api.Subnet)
 	p.FQDN = api.FQDN
 	p.CustomNodeLabels = map[string]string{}
+	p.AcceleratedNetworkingEnabled = api.AcceleratedNetworkingEnabled
+
 	for k, v := range api.CustomNodeLabels {
 		p.CustomNodeLabels[k] = v
 	}
@@ -987,6 +1021,7 @@ func convertAgentPoolProfileToVLabs(api *AgentPoolProfile, p *vlabs.AgentPoolPro
 		p.ImageRef.Name = api.ImageRef.Name
 		p.ImageRef.ResourceGroup = api.ImageRef.ResourceGroup
 	}
+	p.Role = vlabs.AgentPoolProfileRole(api.Role)
 }
 
 func convertDiagnosticsProfileToV20160930(api *DiagnosticsProfile, dp *v20160930.DiagnosticsProfile) {

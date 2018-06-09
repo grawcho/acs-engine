@@ -267,12 +267,15 @@
 {{end}}
         "[variables('masterStorageAccountExhibitorName')]"
 {{if not IsHostedBootstrap}}
-       ,"[concat('Microsoft.Compute/virtualMachines/', variables('bootstrapVMNamePrefix'), sub(variables('bootstrapCount'), 1), '/extensions/bootstrapready')]"
+       ,"[concat('Microsoft.Compute/virtualMachines/', variables('bootstrapVMName'), '/extensions/bootstrapready')]"
 {{end}}
       ],
       "tags":
       {
-        "creationSource" : "[concat('acsengine-', variables('masterVMNamePrefix'), copyIndex())]"
+        "creationSource" : "[concat('acsengine-', variables('masterVMNamePrefix'), copyIndex())]",
+        "orchestratorName": "dcos",
+        "orchestratorVersion": "[variables('orchestratorVersion')]",
+        "orchestratorNode": "master"
       },
       "location": "[variables('location')]",
       "name": "[concat(variables('masterVMNamePrefix'), copyIndex())]",

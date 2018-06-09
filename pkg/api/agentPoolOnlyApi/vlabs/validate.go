@@ -5,6 +5,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/Azure/acs-engine/pkg/api/common"
 	validator "gopkg.in/go-playground/validator.v9"
 )
 
@@ -78,10 +79,7 @@ func (a *Properties) Validate() error {
 	if e := a.LinuxProfile.Validate(); e != nil {
 		return e
 	}
-	if e := validateVNET(a); e != nil {
-		return e
-	}
-	return nil
+	return validateVNET(a)
 }
 
 func validatePoolName(poolName string) error {
@@ -140,7 +138,7 @@ func validateVNET(a *Properties) error {
 	agentVNETMap := make(map[string]int)
 	if isCustomVNET {
 		for _, agentPool := range a.AgentPoolProfiles {
-			agentSubID, agentRG, agentVNET, _, err := GetVNETSubnetIDComponents(agentPool.VnetSubnetID)
+			agentSubID, agentRG, agentVNET, _, err := common.GetVNETSubnetIDComponents(agentPool.VnetSubnetID)
 			if err != nil {
 				return err
 			}
@@ -158,18 +156,4 @@ func validateVNET(a *Properties) error {
 	}
 
 	return nil
-}
-
-// GetVNETSubnetIDComponents extract subscription, resourcegroup, vnetname, subnetname from the vnetSubnetID
-func GetVNETSubnetIDComponents(vnetSubnetID string) (string, string, string, string, error) {
-	vnetSubnetIDRegex := `^\/subscriptions\/([^\/]*)\/resourceGroups\/([^\/]*)\/providers\/Microsoft.Network\/virtualNetworks\/([^\/]*)\/subnets\/([^\/]*)$`
-	re, err := regexp.Compile(vnetSubnetIDRegex)
-	if err != nil {
-		return "", "", "", "", err
-	}
-	submatches := re.FindStringSubmatch(vnetSubnetID)
-	if len(submatches) != 4 {
-		return "", "", "", "", err
-	}
-	return submatches[1], submatches[2], submatches[3], submatches[4], nil
 }

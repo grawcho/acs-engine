@@ -15,7 +15,7 @@ import (
 	"github.com/Azure/azure-sdk-for-go/arm/resources/resources"
 	"github.com/Azure/go-autorest/autorest"
 	log "github.com/sirupsen/logrus"
-	"k8s.io/client-go/pkg/api/v1"
+	"k8s.io/api/core/v1"
 )
 
 //MockACSEngineClient is an implementation of ACSEngineClient where all requests error out
@@ -32,6 +32,8 @@ type MockACSEngineClient struct {
 	FailDeleteNetworkInterface      bool
 	FailGetKubernetesClient         bool
 	FailListProviders               bool
+	ShouldSupportVMIdentity         bool
+	FailDeleteRoleAssignment        bool
 	MockKubernetesClient            *MockKubernetesClient
 }
 
@@ -210,7 +212,7 @@ func (mc *MockACSEngineClient) ListVirtualMachines(resourceGroup string) (comput
 	poolnameString := "poolName"
 
 	creationSource := "acsengine-k8s-agentpool1-12345678-0"
-	orchestrator := "Kubernetes:1.6.8"
+	orchestrator := "Kubernetes:1.6.9"
 	resourceNameSuffix := "12345678"
 	poolname := "agentpool1"
 
@@ -270,9 +272,11 @@ func (mc *MockACSEngineClient) GetVirtualMachine(resourceGroup, name string) (co
 	poolnameString := "poolName"
 
 	creationSource := "acsengine-k8s-agentpool1-12345678-0"
-	orchestrator := "Kubernetes:1.6.8"
+	orchestrator := "Kubernetes:1.6.9"
 	resourceNameSuffix := "12345678"
 	poolname := "agentpool1"
+
+	principalID := "00000000-1111-2222-3333-444444444444"
 
 	tags := map[string]*string{
 		creationSourceString:     &creationSource,
@@ -281,9 +285,15 @@ func (mc *MockACSEngineClient) GetVirtualMachine(resourceGroup, name string) (co
 		poolnameString:           &poolname,
 	}
 
+	var vmIdentity *compute.VirtualMachineIdentity
+	if mc.ShouldSupportVMIdentity {
+		vmIdentity = &compute.VirtualMachineIdentity{PrincipalID: &principalID}
+	}
+
 	return compute.VirtualMachine{
-		Name: &vm1Name,
-		Tags: &tags,
+		Name:     &vm1Name,
+		Tags:     &tags,
+		Identity: vmIdentity,
 		VirtualMachineProperties: &compute.VirtualMachineProperties{
 			StorageProfile: &compute.StorageProfile{
 				OsDisk: &compute.OSDisk{
@@ -461,4 +471,28 @@ func (mc *MockACSEngineClient) ListDeploymentOperations(resourceGroupName string
 // ListDeploymentOperationsNextResults retrieves the next set of results, if any.
 func (mc *MockACSEngineClient) ListDeploymentOperationsNextResults(lastResults resources.DeploymentOperationsListResult) (result resources.DeploymentOperationsListResult, err error) {
 	return resources.DeploymentOperationsListResult{}, nil
+}
+
+// DeleteRoleAssignmentByID deletes a roleAssignment via its unique identifier
+func (mc *MockACSEngineClient) DeleteRoleAssignmentByID(roleAssignmentID string) (authorization.RoleAssignment, error) {
+	if mc.FailDeleteRoleAssignment {
+		return authorization.RoleAssignment{}, fmt.Errorf("DeleteRoleAssignmentByID failed")
+	}
+
+	return authorization.RoleAssignment{}, nil
+}
+
+// ListRoleAssignmentsForPrincipal (e.g. a VM) via the scope and the unique identifier of the principal
+func (mc *MockACSEngineClient) ListRoleAssignmentsForPrincipal(scope string, principalID string) (authorization.RoleAssignmentListResult, error) {
+	roleAssignments := []authorization.RoleAssignment{}
+
+	if mc.ShouldSupportVMIdentity {
+		var assignmentID = "role-assignment-id"
+		var assignment = authorization.RoleAssignment{
+			ID: &assignmentID}
+		roleAssignments = append(roleAssignments, assignment)
+	}
+
+	return authorization.RoleAssignmentListResult{
+		Value: &roleAssignments}, nil
 }

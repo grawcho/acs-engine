@@ -2,7 +2,6 @@ package kubernetesupgrade
 
 import (
 	"fmt"
-	"strconv"
 	"strings"
 	"time"
 
@@ -11,7 +10,7 @@ import (
 	"github.com/Azure/acs-engine/pkg/armhelpers/utils"
 	"github.com/Azure/acs-engine/pkg/i18n"
 	"github.com/Azure/azure-sdk-for-go/arm/compute"
-	"github.com/Masterminds/semver"
+	"github.com/blang/semver"
 	uuid "github.com/satori/go.uuid"
 	"github.com/sirupsen/logrus"
 )
@@ -19,10 +18,11 @@ import (
 // ClusterTopology contains resources of the cluster the upgrade operation
 // is targeting
 type ClusterTopology struct {
-	DataModel     *api.ContainerService
-	Location      string
-	ResourceGroup string
-	NameSuffix    string
+	DataModel      *api.ContainerService
+	SubscriptionID string
+	Location       string
+	ResourceGroup  string
+	NameSuffix     string
 
 	AgentPoolsToUpgrade map[string]bool
 	AgentPools          map[string]*AgentPoolTopology
@@ -59,6 +59,7 @@ const MasterPoolName = "master"
 func (uc *UpgradeCluster) UpgradeCluster(subscriptionID uuid.UUID, kubeConfig, resourceGroup string,
 	cs *api.ContainerService, nameSuffix string, agentPoolsToUpgrade []string, acsengineVersion string) error {
 	uc.ClusterTopology = ClusterTopology{}
+	uc.SubscriptionID = subscriptionID.String()
 	uc.ResourceGroup = resourceGroup
 	uc.DataModel = cs
 	uc.NameSuffix = nameSuffix
@@ -175,7 +176,7 @@ func (uc *UpgradeCluster) upgradable(vmOrchestratorTypeAndVersion string) error 
 	if len(arr) != 2 {
 		return fmt.Errorf("Unsupported orchestrator tag format %s", vmOrchestratorTypeAndVersion)
 	}
-	currentVer, err := semver.NewVersion(arr[1])
+	currentVer, err := semver.Make(arr[1])
 	if err != nil {
 		return fmt.Errorf("Unsupported orchestrator version format %s", currentVer.String())
 	}
@@ -228,13 +229,15 @@ func (uc *UpgradeCluster) addVMToAgentPool(vm compute.VirtualMachine, isUpgradab
 			return nil
 		}
 	} else if vm.StorageProfile.OsDisk.OsType == compute.Windows {
-		poolPrefix, acsStr, poolIndex, _, err := utils.WindowsVMNameParts(*vm.Name)
+		poolPrefix, _, _, _, err := utils.WindowsVMNameParts(*vm.Name)
 		if err != nil {
 			uc.Logger.Errorf(err.Error())
 			return err
 		}
 
-		poolIdentifier = poolPrefix + acsStr + strconv.Itoa(poolIndex)
+		//The k8s Windows VM Naming Format is "^([a-fA-F0-9]{5})([0-9a-zA-Z]{3})([a-zA-Z0-9]{4,6})$" (i.e.: 50621k8s9000)
+		//The pool identifier is made of the first 11 characters
+		poolIdentifier = (*vm.Name)[:11]
 
 		if !strings.Contains(uc.NameSuffix, poolPrefix) {
 			uc.Logger.Infof("Skipping VM: %s for upgrade as it does not belong to cluster with expected name suffix: %s\n",

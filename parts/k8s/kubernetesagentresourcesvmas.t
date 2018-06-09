@@ -1,5 +1,9 @@
     {
+{{if .IsAcceleratedNetworkingEnabled}}
+      "apiVersion": "[variables('apiVersionAcceleratedNetworking')]",
+{{else}}
       "apiVersion": "[variables('apiVersionDefault')]",
+{{end}}
       "copy": {
         "count": "[sub(variables('{{.Name}}Count'), variables('{{.Name}}Offset'))]",
         "name": "loop"
@@ -12,11 +16,14 @@
       "[variables('vnetID')]"
 {{end}}
 {{else}}
-{{if not .IsCustomVNET}}
+{{if .IsCustomVNET}}
+      "[concat(variables('masterVMNamePrefix'), 'nic-0')]",
+{{else}}
       "[variables('vnetID')]",
 {{end}}
 {{if eq .Role "infra"}}
-      "[resourceId('Microsoft.Network/networkSecurityGroups', 'router-nsg')]"
+      "[variables('routerLBName')]",
+      "[variables('routerNSGID')]"
 {{else}}
       "[variables('nsgID')]"
 {{end}}
@@ -25,6 +32,7 @@
       "location": "[variables('location')]",
       "name": "[concat(variables('{{.Name}}VMNamePrefix'), 'nic-', copyIndex(variables('{{.Name}}Offset')))]",
       "properties": {
+        "enableAcceleratedNetworking" : "{{.IsAcceleratedNetworkingEnabled}}",
 {{if not IsOpenShift}}
 {{if .IsCustomVNET}}
         "networkSecurityGroup": {
@@ -34,7 +42,7 @@
 {{else}}
         "networkSecurityGroup": {
           {{if eq .Role "infra"}}
-          "id": "[resourceId('Microsoft.Network/networkSecurityGroups', 'router-nsg')]"
+          "id": "[variables('routerNSGID')]"
           {{else}}
           "id": "[variables('nsgID')]"
           {{end}}
@@ -56,7 +64,7 @@
               ,
               "loadBalancerBackendAddressPools": [
                 {
-                    "id": "[concat(resourceId('Microsoft.Network/loadBalancers', 'router-lb'), '/backendAddressPools/backend')]"
+                    "id": "[concat(resourceId('Microsoft.Network/loadBalancers', variables('routerLBName')), '/backendAddressPools/backend')]"
                 }
               ]
 {{end}}

@@ -42,11 +42,14 @@ type Properties struct {
 	NodeResourceGroup       string                   `json:"nodeResourceGroup,omitempty"`
 	EnableRBAC              *bool                    `json:"enableRBAC,omitempty"`
 	NetworkProfile          *NetworkProfile          `json:"networkProfile,omitempty"`
+	AADProfile              *AADProfile              `json:"aadProfile,omitempty"`
 }
 
 // NetworkProfile represents network related definitions
 type NetworkProfile struct {
 	NetworkPlugin    NetworkPlugin `json:"networkPlugin,omitempty"`
+	NetworkPolicy    NetworkPolicy `json:"networkPolicy,omitempty"`
+	PodCidr          string        `json:"podCidr,omitempty"`
 	ServiceCidr      string        `json:"serviceCidr,omitempty"`
 	DNSServiceIP     string        `json:"dnsServiceIP,omitempty"`
 	DockerBridgeCidr string        `json:"dockerBridgeCidr,omitempty"`
@@ -60,6 +63,14 @@ const (
 	Azure NetworkPlugin = "azure"
 	// Kubenet represents Kubenet network plugin
 	Kubenet NetworkPlugin = "kubenet"
+)
+
+// NetworkPolicy represnets types of network policy
+type NetworkPolicy string
+
+const (
+	// NetworkPolicyCalico represents Calico network policy
+	NetworkPolicyCalico NetworkPolicy = "calico"
 )
 
 // AddonProfile represents an addon for managed cluster
@@ -186,6 +197,20 @@ type AgentPoolProfile struct {
 // AccessProfile represents role name and kubeconfig
 type AccessProfile struct {
 	KubeConfig string `json:"kubeConfig"`
+}
+
+// AADProfile specifies attributes for AAD integration
+type AADProfile struct {
+	// The client AAD application ID.
+	ClientAppID string `json:"clientAppID,omitempty"`
+	// The server AAD application ID.
+	ServerAppID string `json:"serverAppID,omitempty"`
+	// The server AAD application secret
+	ServerAppSecret string `json:"serverAppSecret,omitempty"`
+	// The AAD tenant ID to use for authentication.
+	// If not specified, will use the tenant of the deployment subscription.
+	// Optional
+	TenantID string `json:"tenantID,omitempty"`
 }
 
 // UnmarshalJSON unmarshal json using the default behavior

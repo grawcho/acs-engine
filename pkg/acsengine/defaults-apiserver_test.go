@@ -5,7 +5,7 @@ import (
 
 	"github.com/Azure/acs-engine/pkg/api"
 	"github.com/Azure/acs-engine/pkg/helpers"
-	"github.com/satori/uuid"
+	"github.com/satori/go.uuid"
 )
 
 const defaultTestClusterVer = "1.7.12"
@@ -209,6 +209,30 @@ func TestAPIServerConfigHasAadProfile(t *testing.T) {
 			a["--oidc-issuer-url"])
 	}
 
+	cs.Location = "chinaeast2"
+	setAPIServerConfig(cs)
+	a = cs.Properties.OrchestratorProfile.KubernetesConfig.APIServerConfig
+	if a["--oidc-issuer-url"] != "https://sts.chinacloudapi.cn/"+cs.Properties.AADProfile.TenantID+"/" {
+		t.Fatalf("got unexpected '--oidc-issuer-url' API server config value for HasAadProfile=true using China cloud: %s",
+			a["--oidc-issuer-url"])
+	}
+
+	cs.Location = "chinanorth"
+	setAPIServerConfig(cs)
+	a = cs.Properties.OrchestratorProfile.KubernetesConfig.APIServerConfig
+	if a["--oidc-issuer-url"] != "https://sts.chinacloudapi.cn/"+cs.Properties.AADProfile.TenantID+"/" {
+		t.Fatalf("got unexpected '--oidc-issuer-url' API server config value for HasAadProfile=true using China cloud: %s",
+			a["--oidc-issuer-url"])
+	}
+
+	cs.Location = "chinanorth2"
+	setAPIServerConfig(cs)
+	a = cs.Properties.OrchestratorProfile.KubernetesConfig.APIServerConfig
+	if a["--oidc-issuer-url"] != "https://sts.chinacloudapi.cn/"+cs.Properties.AADProfile.TenantID+"/" {
+		t.Fatalf("got unexpected '--oidc-issuer-url' API server config value for HasAadProfile=true using China cloud: %s",
+			a["--oidc-issuer-url"])
+	}
+
 	// Test HasAadProfile = false
 	cs = createContainerService("testcluster", defaultTestClusterVer, 3, 2)
 	setAPIServerConfig(cs)
@@ -288,6 +312,44 @@ func TestAPIServerConfigEnableSecureKubelet(t *testing.T) {
 			t.Fatalf("got unexpected '%s' API server config value for EnableSecureKubelet=false: %s",
 				key, a[key])
 		}
+	}
+}
+
+func TestAPIServerConfigDefaultAdmissionControls(t *testing.T) {
+	// Test --enable-admission-plugins for v1.10 and above
+	version := "1.10.0"
+	enableAdmissionPluginsKey := "--enable-admission-plugins"
+	admissonControlKey := "--admission-control"
+	cs := createContainerService("testcluster", version, 3, 2)
+	cs.Properties.OrchestratorProfile.KubernetesConfig.APIServerConfig = map[string]string{}
+	cs.Properties.OrchestratorProfile.KubernetesConfig.APIServerConfig[admissonControlKey] = "NamespaceLifecycle,LimitRanger,ServiceAccount,DefaultStorageClass,DefaultTolerationSeconds,MutatingAdmissionWebhook,ValidatingAdmissionWebhook,ResourceQuota,DenyEscalatingExec,AlwaysPullImages"
+	setAPIServerConfig(cs)
+	a := cs.Properties.OrchestratorProfile.KubernetesConfig.APIServerConfig
+
+	// --enable-admission-plugins should be set for v1.10 and above
+	if _, found := a[enableAdmissionPluginsKey]; !found {
+		t.Fatalf("Admission control key '%s' not set in API server config for version %s", enableAdmissionPluginsKey, version)
+	}
+
+	// --admission-control was deprecated in v1.10
+	if _, found := a[admissonControlKey]; found {
+		t.Fatalf("Deprecated admission control key '%s' set in API server config for version %s", admissonControlKey, version)
+	}
+
+	// Test --admission-control for v1.9 and below
+	version = "1.9.0"
+	cs = createContainerService("testcluster", version, 3, 2)
+	setAPIServerConfig(cs)
+	a = cs.Properties.OrchestratorProfile.KubernetesConfig.APIServerConfig
+
+	// --enable-admission-plugins is available for v1.10 and above and should not be set here
+	if _, found := a[enableAdmissionPluginsKey]; found {
+		t.Fatalf("Unknown admission control key '%s' set in API server config for version %s", enableAdmissionPluginsKey, version)
+	}
+
+	// --admission-control is used for v1.9 and below
+	if _, found := a[admissonControlKey]; !found {
+		t.Fatalf("Admission control key '%s' not set in API server config for version %s", enableAdmissionPluginsKey, version)
 	}
 }
 

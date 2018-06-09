@@ -3,12 +3,13 @@
 ## Supported Windows versions
 Prior to acs-engine v0.9.2, Kubernetes Windows cluster uses Windows Server 2016. There are a few restrictions in Windows Networking for Kubernetes as documented in https://blogs.technet.microsoft.com/networking/2017/04/04/windows-networking-for-kubernetes/. Besides, Windows POD deployment performanace is limited due to the bottleneck of container image size and configuration at container start time. 
 
-With the release of new Windows Server version 1709 (a.k.a, RS3), acs-engine v0.9.2 and beyond has leveraged the new Windows version to deploy Kubernetes Windows cluster with signifcant improvement in Windows container and networking performance, as well as new features in storage. Specifically,
+With the release of new Windows Server version 1709, acs-engine v0.9.2 and beyond has leveraged the new Windows version to deploy Kubernetes Windows cluster with signifcant improvement in Windows container and networking performance, as well as new features in storage. Specifically,
 1. Windows is now on par with Linux in terms of networking. New features including hostport have been implemented in kube-proxy and Windows platform and CNI to enhance networking performance. Please refer to http://blog.kubernetes.io/2017/09/windows-networking-at-parity-with-linux.html for details.
 2. Azure Files and Disks are now supported to mount on Kubernetes Windows cluster with the new SMB feature in Windows.
 3. Multiple containers in POD are now supported on Kubernetes Windows cluster.
 
-Note, with the rollout of new Windows version in acs-engine, the workload deployed on Windows cluster requires compatible container image, as documented here: https://docs.microsoft.com/en-us/virtualization/windowscontainers/deploy-containers/version-compatibility
+Note, with the rollout of new Windows Server versions in acs-engine, the workload deployed on Windows cluster should match as documented here: https://docs.microsoft.com/en-us/virtualization/windowscontainers/deploy-containers/version-compatibility . Both the containers being deployed,
+as well as the `kubletwin/pause` container must match the version of the Windows host. Otherwise, [pods may get stuck at ContainerCreating](https://docs.microsoft.com/en-us/virtualization/windowscontainers/kubernetes/common-problems#my-kubernetes-pods-are-stuck-at-containercreating) state.
 
 ## Deployment
 
@@ -20,35 +21,52 @@ Here are the steps to deploy a simple Kubernetes cluster with Windows:
 4. edit the [Kubernetes windows example](../../examples/windows/kubernetes.json) and fill in the blank strings
 5. [generate the template](../acsengine.md#generating-a-template)
 6. [deploy the output azuredeploy.json and azuredeploy.parameters.json](../acsengine.md#deployment-usage)
-7. Temporary workaround when deploying a cluster in a custom VNET with Kubernetes 1.6.0:
-    1. After a cluster has been created in step 6 get id of the route table resource from Microsoft.Network provider in your resource group. 
-       The route table resource id is of the format:
-       `/subscriptions/SUBSCRIPTIONID/resourceGroups/RESOURCEGROUPNAME/providers/Microsoft.Network/routeTables/ROUTETABLENAME`
-    2. Update properties of all subnets in the newly created VNET that are used by Kubernetes cluster to refer to the route table resource by appending the following to subnet properties:
-        ```shell
-        "routeTable": {
-                "id": "/subscriptions/<SubscriptionId>/resourceGroups/<ResourceGroupName>/providers/Microsoft.Network/routeTables/<RouteTableResourceName>"
-              }
-        ```
 
-        E.g.:
-        ```shell
-        "subnets": [
-            {
-              "name": "subnetname",
-              "id": "/subscriptions/<SubscriptionId>/resourceGroups/<ResourceGroupName>/providers/Microsoft.Network/virtualNetworks/<VirtualNetworkName>/subnets/<SubnetName>",
-              "properties": {
-                "provisioningState": "Succeeded",
-                "addressPrefix": "10.240.0.0/16",
-                "routeTable": {
-                  "id": "/subscriptions/<SubscriptionId>/resourceGroups/<ResourceGroupName>/providers/Microsoft.Network/routeTables/<RouteTableResourceName>"
-                }
-              ....
-              }
-              ....
-            }
-        ]
-        ```
+### Common customizations
+
+As part of step 4, edit the [Kubernetes windows example](../../examples/windows/kubernetes.json), you can also make some changes to how Windows is deployed.
+
+#### Changing the OS disk size
+
+The Windows Server deployments default to 30GB for the OS drive (C:), which may not be enough. You can change this size by adding `osDiskSizeGB` under the `agentPoolProfiles`, such as:
+
+```
+"agentPoolProfiles": [
+      {
+        "name": "windowspool2",
+        "count": 2,
+        "vmSize": "Standard_D2_v3",
+        "availabilityProfile": "AvailabilitySet",
+        "osType": "Windows",
+        "osDiskSizeGB": 127
+     }
+```
+
+#### Choosing the Windows Server version
+
+If you want to deploy a specific Windows Server version, you can find available versions with `az vm image list --publisher MicrosoftWindowsServer --all -o table`
+
+```
+$ az vm image list --publisher MicrosoftWindowsServer --all -o table                                                                                        
+
+Offer                    Publisher                      Sku                                             Urn                                                                                                            Version
+-----------------------  -----------------------------  ----------------------------------------------  -------------------------------------------------------------------------------------------------------------  -----------------
+...
+WindowsServerSemiAnnual  MicrosoftWindowsServer         Datacenter-Core-1709-with-Containers-smalldisk  MicrosoftWindowsServer:WindowsServerSemiAnnual:Datacenter-Core-1709-with-Containers-smalldisk:1709.0.20180412  1709.0.20180412
+WindowsServerSemiAnnual  MicrosoftWindowsServer         Datacenter-Core-1803-with-Containers-smalldisk  MicrosoftWindowsServer:WindowsServerSemiAnnual:Datacenter-Core-1803-with-Containers-smalldisk:1803.0.20180504  1803.0.20180504
+```
+
+You can use the Offer, Publisher and Sku to pick a specific version by adding `windowsOffer`, `windowsPublisher`, `windowsSku` and (optionally) `widndowsVersion` to the `windowsProfile` section. In this example, the latest Windows Server version 1803 image would be deployed.
+
+```
+"windowsProfile": {
+            "adminUsername": "azureuser",
+            "adminPassword": "...",
+            "windowsPublisher": "MicrosoftWindowsServer",
+            "windowsOffer": "WindowsServerSemiAnnual",
+            "windowsSku": "Datacenter-Core-1803-with-Containers-smalldisk"
+     },
+```
 
 ## Walkthrough
 
@@ -132,7 +150,7 @@ After completing this walkthrough you will know how to:
       spec:
         containers:
         - name: windowswebserver
-          image: microsoft/windowsservercore:1709
+          image: microsoft/windowsservercore:1803
           command:
           - powershell.exe
           - -command
@@ -141,9 +159,9 @@ After completing this walkthrough you will know how to:
           beta.kubernetes.io/os: windows
   ```
 
-5. Type `watch kubectl get pods` to watch the deployment of the service that takes about 30 seconds.  Once running, type `kubectl get svc` and curl the 10.x address to see the output, eg. `curl 10.244.1.4`
+5. Type `kubectl get pods -w` to watch the deployment of the service that takes about 30 seconds.  Once running, type `kubectl get svc` and curl the 10.x address to see the output, eg. `curl 10.244.1.4`
 
-6. Type `watch kubectl get svc` to watch the addition of the external IP address that will take about 2-5 minutes.  Once there, you can take the external IP and view in your web browser.
+6. Type `kubectl get svc -w` to watch the addition of the external IP address that will take about 2-5 minutes.  Once there, you can take the external IP and view in your web browser.
 
 ## Example using Azure Files and Azure Disks
 ### Create Azure File workload
@@ -253,7 +271,7 @@ spec:
       containers:
 
         - name: iis-container
-          image: microsoft/iis:windowsservercore-1709
+          image: microsoft/iis:windowsservercore-1803
           volumeMounts:
           - name: shared-data
             mountPath: /wwwcache
@@ -263,7 +281,7 @@ spec:
           - "while ($true) { Start-Sleep -Seconds 10; Copy-Item -Path C:\\wwwcache\\iisstart.htm -Destination C:\\inetpub\\wwwroot\\iisstart.htm; }"            
 
         - name: servercore-container
-          image: microsoft/windowsservercore:1709
+          image: microsoft/windowsservercore:1803
           volumeMounts:
           - name: shared-data
             mountPath: /poddata
@@ -279,7 +297,130 @@ spec:
 ## Real-world Workload
 TODO
 
-## Troubleshooting
+
+## Windows-specific Troubleshooting
+
+Windows support is still in active development with many changes each week. Read on for more info on known per-version issues and troubleshooting if you run into problems.
+
+### Checking versions
+
+Please be sure to include this info with any Windows bug reports.
+
+Kubernetes
+`kubectl version`
+-	“Server Version”
+`kubectl describe node <windows node>`
+-	“kernel version”
+-	Also note the IP Address for the next step, but you don't need to share it
+
+Windows config
+Connect to the Windows node with remote desktop. This is easiest forwarding a port through SSH from your Kubernetes management endpoint.
+
+1.	`ssh -L 5500:<internal ip>:3389 user@masterFQDN`
+2.	Once connected, run `mstsc.exe /v:localhost:5500` to connect. Log in with the username & password you set for the Windows agents.
+
+The Azure CNI plugin version and configuration is stored in `C:\k\azurecni\netconf\10-azure.conflist`. Get
+-	mode
+-	dns.Nameservers
+-	dns.Search
+
+Get the Azure CNI build by running `C:\k\azurecni\bin\azure-vnet.exe --help`. It will dump some errors, but the version such as ` v1.0.4-1-gf0f090e` will be listed.
+
+```
+...
+2018/05/23 01:28:57 "Start Flag false CniSucceeded false Name CNI Version v1.0.4-1-gf0f090e ErrorMessage required env variables missing vnet []
+...
+```
+
+### Known Issues per Version
+
+
+ACS-Engine | Windows Server |	Kubernetes | Azure CNI | Notes
+-----------|----------------|------------|-----------|----------
+V0.16.2	| Windows Server version 1709 (10.0.16299.____)	| V1.9.7 | ? | DNS resolution is not configured
+V0.17.0 | Windows Server version 1709	| V1.10.2 | v1.0.4 | Acs-engine version 0.17 defaults to Windows Server version 1803. You can override it to use 1709 instead [here](#choosing-the-windows-server-version). Manual workarounds needed on Windows for DNS Server list, DNS search suffix
+V0.17.0 | Windows Server version 1803 (10.0.17134.1) | V1.10.2 | v1.0.4 | Manual workarounds needed on Windows for DNS Server list, DNS search suffix, and dropped packets
+v0.17.1 | Windows Server version 1709 | v1.10.3 | v1.0.4-1-gf0f090e | Manual workarounds needed on Windows for DNS Server list and DNS search suffix. This ACS-Engine version defaults to Windows Server version 1803, but you can override it to use 1709 instead [here](#choosing-the-windows-server-version)
+v0.18.3 | Windows Server version 1803 | v1.10.3 | v1.0.6 | Manual workaround needed for DNS search suffix
+
+### Known problems
+
+#### Packets from Windows pods are dropped
+
+Affects: Windows Server version 1803 (10.0.17134.1)
+
+Issues: https://github.com/Azure/acs-engine/issues/3037 
+
+There is a problem with the “L2Tunnel” networking mode not forwarding packets correctly specific to Windows Server version 1803. Windows Server version 1709 is not affected.
+
+Workarounds:
+**Fixes are still in development.** A Windows hotfix is needed, and willbe deployed by ACS-Engine once it's ready. The hotfix will be removed later when it's in a future cumulative rollup.
+
+
+#### Pods cannot resolve public DNS names
+
+Affects: Some builds of Azure CNI
+
+Issues: https://github.com/Azure/azure-container-networking/issues/147
+
+Run `ipconfig /all` in a pod, and check that the first DNS server listed is within your cluster IP range (10.x.x.x). If it's not listed, or not the first in the list, then an azure-cni update is needed.
+
+Workaround:
+
+1.	Get the kube-dns service IP with `kubectl get svc -n kube-system kube-dns`
+2.  Cordon & drain the node
+3.	Modify `C:\k\azurecni\netconf\10-azure.conflist` and make it the first entry under Nameservers
+4.  Uncordon the node
+
+Example:
+```
+{
+    "cniVersion":  "0.3.0",
+    "name":  "azure",
+    "plugins":  [
+                    {
+                        "type":  "azure-vnet",
+                        "mode":  "tunnel",
+                        "bridge":  "azure0",
+                        "ipam":  {
+                                     "type":  "azure-vnet-ipam"
+                                 },
+                        "dns":  {
+                                    "Nameservers":  [
+                                                        "10.0.0.10",
+                                                        "168.63.129.16"
+                                                    ],
+                                    "Search":  [
+                                                   "default.svc.cluster.local"
+                                               ]
+                                },
+…
+```
+
+#### Pods cannot resolve cluster DNS names
+
+Affects: Azure CNI plugin <= 0.3.0
+
+Issues: https://github.com/Azure/azure-container-networking/issues/146
+
+If you can't resolve internal service names within the same namespace, run `ipconfig /all` in a pod, and check that the DNS Suffix Search List matches the form `<namespace>.svc.cluster.local`. An Azure CNI update is needed to set the right DNS suffix.
+
+Workaround:
+1.	Use the FQDN in DNS lookups such as `kubernetes.kube-system.svc.cluster.local`
+2.	Instead of DNS, use environment variables `* _SERVICE_HOST` and `*_SERVICE_PORT` to find service IPs and ports in the same namespace
+
+
+#### Pods cannot ping default route or internet IPs
+
+Affects: All acs-engine deployed clusters
+
+ICMP traffic is not routed between private Azure vNETs or to the internet.
+
+Workaround: test network connections with another protocol (TCP/UDP). For example `Invoke-WebRequest -UseBasicParsing https://www.azure.com` or `curl https://www.azure.com`.
+
+
+
+## Cluster Troubleshooting
 
 If your cluster is not reachable, you can run the following command to check for common failures.
 

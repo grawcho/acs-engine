@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
@@ -18,6 +19,7 @@ import (
 	"github.com/Azure/acs-engine/pkg/armhelpers/utils"
 	"github.com/Azure/acs-engine/pkg/helpers"
 	"github.com/Azure/acs-engine/pkg/i18n"
+	"github.com/Azure/acs-engine/pkg/openshift/filesystem"
 	"github.com/Azure/acs-engine/pkg/operations"
 	"github.com/leonelquinteros/gotext"
 
@@ -32,27 +34,27 @@ type scaleCmd struct {
 	resourceGroupName    string
 	deploymentDirectory  string
 	newDesiredAgentCount int
-	containerService     *api.ContainerService
-	apiVersion           string
 	location             string
 	agentPoolToScale     string
 	classicMode          bool
+	masterFQDN           string
 
 	// derived
-	apiModelPath   string
-	agentPool      *api.AgentPoolProfile
-	client         armhelpers.ACSEngineClient
-	locale         *gotext.Locale
-	nameSuffix     string
-	agentPoolIndex int
-	masterFQDN     string
-	logger         *log.Entry
+	containerService *api.ContainerService
+	apiVersion       string
+	apiModelPath     string
+	agentPool        *api.AgentPoolProfile
+	client           armhelpers.ACSEngineClient
+	locale           *gotext.Locale
+	nameSuffix       string
+	agentPoolIndex   int
+	logger           *log.Entry
 }
 
 const (
 	scaleName             = "scale"
-	scaleShortDescription = "Scale an existing Kubernetes cluster"
-	scaleLongDescription  = "Scale an existing Kubernetes cluster by specifying increasing or decreasing the node count of an agentpool"
+	scaleShortDescription = "Scale an existing Kubernetes or OpenShift cluster"
+	scaleLongDescription  = "Scale an existing Kubernetes or OpenShift cluster by specifying increasing or decreasing the node count of an agentpool"
 )
 
 // NewScaleCmd run a command to upgrade a Kubernetes cluster
@@ -82,52 +84,62 @@ func newScaleCmd() *cobra.Command {
 	return scaleCmd
 }
 
-func (sc *scaleCmd) validate(cmd *cobra.Command, args []string) {
+func (sc *scaleCmd) validate(cmd *cobra.Command) error {
 	log.Infoln("validating...")
-	sc.logger = log.New().WithField("source", "scaling command line")
 	var err error
 
 	sc.locale, err = i18n.LoadTranslations()
 	if err != nil {
-		log.Fatalf("error loading translation files: %s", err.Error())
+		return fmt.Errorf("error loading translation files: %s", err.Error())
 	}
 
 	if sc.resourceGroupName == "" {
 		cmd.Usage()
-		log.Fatal("--resource-group must be specified")
+		return fmt.Errorf("--resource-group must be specified")
 	}
 
 	if sc.location == "" {
 		cmd.Usage()
-		log.Fatal("--location must be specified")
-	} else {
-		sc.location = helpers.NormalizeAzureRegion(sc.location)
+		return fmt.Errorf("--location must be specified")
 	}
+
+	sc.location = helpers.NormalizeAzureRegion(sc.location)
 
 	if sc.newDesiredAgentCount == 0 {
 		cmd.Usage()
-		log.Fatal("--new-node-count must be specified")
-	}
-
-	if sc.client, err = sc.authArgs.getClient(); err != nil {
-		log.Error("Failed to get client:", err)
+		return fmt.Errorf("--new-node-count must be specified")
 	}
 
 	if sc.deploymentDirectory == "" {
 		cmd.Usage()
-		log.Fatal("--deployment-dir must be specified")
+		return fmt.Errorf("--deployment-dir must be specified")
+	}
+
+	return nil
+}
+
+func (sc *scaleCmd) load(cmd *cobra.Command) error {
+	sc.logger = log.New().WithField("source", "scaling command line")
+	var err error
+
+	if err = sc.authArgs.validateAuthArgs(); err != nil {
+		return err
+	}
+
+	if sc.client, err = sc.authArgs.getClient(); err != nil {
+		return fmt.Errorf("failed to get client: %s", err.Error())
 	}
 
 	_, err = sc.client.EnsureResourceGroup(sc.resourceGroupName, sc.location, nil)
 	if err != nil {
-		log.Fatalln(err)
+		return err
 	}
 
 	// load apimodel from the deployment directory
 	sc.apiModelPath = path.Join(sc.deploymentDirectory, "apimodel.json")
 
 	if _, err = os.Stat(sc.apiModelPath); os.IsNotExist(err) {
-		log.Fatalf("specified api model does not exist (%s)", sc.apiModelPath)
+		return fmt.Errorf("specified api model does not exist (%s)", sc.apiModelPath)
 	}
 
 	apiloader := &api.Apiloader{
@@ -137,25 +149,25 @@ func (sc *scaleCmd) validate(cmd *cobra.Command, args []string) {
 	}
 	sc.containerService, sc.apiVersion, err = apiloader.LoadContainerServiceFromFile(sc.apiModelPath, true, true, nil)
 	if err != nil {
-		log.Fatalf("error parsing the api model: %s", err.Error())
+		return fmt.Errorf("error parsing the api model: %s", err.Error())
 	}
 
 	if sc.containerService.Location == "" {
 		sc.containerService.Location = sc.location
 	} else if sc.containerService.Location != sc.location {
-		log.Fatalf("--location does not match api model location")
+		return fmt.Errorf("--location does not match api model location")
 	}
 
 	if sc.agentPoolToScale == "" {
 		agentPoolCount := len(sc.containerService.Properties.AgentPoolProfiles)
 		if agentPoolCount > 1 {
-			log.Fatal("--node-pool is required if more than one agent pool is defined in the container service")
+			return fmt.Errorf("--node-pool is required if more than one agent pool is defined in the container service")
 		} else if agentPoolCount == 1 {
 			sc.agentPool = sc.containerService.Properties.AgentPoolProfiles[0]
 			sc.agentPoolIndex = 0
 			sc.agentPoolToScale = sc.containerService.Properties.AgentPoolProfiles[0].Name
 		} else {
-			log.Fatal("No node pools found to scale")
+			return fmt.Errorf("No node pools found to scale")
 		}
 	} else {
 		agentPoolIndex := -1
@@ -167,7 +179,7 @@ func (sc *scaleCmd) validate(cmd *cobra.Command, args []string) {
 			}
 		}
 		if agentPoolIndex == -1 {
-			log.Fatalf("node pool %s wasn't in the deployed api model", sc.agentPoolToScale)
+			return fmt.Errorf("node pool %s was not found in the deployed api model", sc.agentPoolToScale)
 		}
 	}
 
@@ -182,29 +194,46 @@ func (sc *scaleCmd) validate(cmd *cobra.Command, args []string) {
 
 	nameSuffixParam := templateParameters["nameSuffix"].(map[string]interface{})
 	sc.nameSuffix = nameSuffixParam["defaultValue"].(string)
-	log.Infoln(fmt.Sprintf("Name suffix: %s", sc.nameSuffix))
+	log.Infof("Name suffix: %s", sc.nameSuffix)
+	return nil
 }
 
 func (sc *scaleCmd) run(cmd *cobra.Command, args []string) error {
-	sc.validate(cmd, args)
+	if err := sc.validate(cmd); err != nil {
+		return fmt.Errorf("failed to validate scale command: %s", err.Error())
+	}
+	if err := sc.load(cmd); err != nil {
+		return fmt.Errorf("failed to load existing container service: %s", err.Error())
+	}
 
 	orchestratorInfo := sc.containerService.Properties.OrchestratorProfile
-	var currentNodeCount, highestUsedIndex int
+	var currentNodeCount, highestUsedIndex, index, winPoolIndex int
+	winPoolIndex = -1
 	indexes := make([]int, 0)
 	indexToVM := make(map[int]string)
 	if sc.agentPool.IsAvailabilitySets() {
 		//TODO handle when there is a nextLink in the response and get more nodes
 		vms, err := sc.client.ListVirtualMachines(sc.resourceGroupName)
 		if err != nil {
-			log.Fatalln("failed to get vms in the resource group. Error: %s", err.Error())
+			return fmt.Errorf("failed to get vms in the resource group. Error: %s", err.Error())
 		} else if len(*vms.Value) < 1 {
-			log.Fatalln("The provided resource group does not contain any vms.")
+			return fmt.Errorf("The provided resource group does not contain any vms")
 		}
 		for _, vm := range *vms.Value {
+			vmTags := *vm.Tags
+			poolName := *vmTags["poolName"]
+			nameSuffix := *vmTags["resourceNameSuffix"]
 
-			poolName, nameSuffix, index, err := utils.K8sLinuxVMNameParts(*vm.Name)
-			if err != nil || !strings.EqualFold(poolName, sc.agentPoolToScale) || !strings.EqualFold(nameSuffix, sc.nameSuffix) {
+			//Changed to string contains for the nameSuffix as the Windows Agent Pools use only a substring of the first 5 characters of the entire nameSuffix
+			if err != nil || !strings.EqualFold(poolName, sc.agentPoolToScale) || !strings.Contains(sc.nameSuffix, nameSuffix) {
 				continue
+			}
+
+			osPublisher := vm.StorageProfile.ImageReference.Publisher
+			if osPublisher != nil && strings.EqualFold(*osPublisher, "MicrosoftWindowsServer") {
+				_, _, winPoolIndex, index, err = utils.WindowsVMNameParts(*vm.Name)
+			} else {
+				_, _, index, err = utils.K8sLinuxVMNameParts(*vm.Name)
 			}
 
 			indexToVM[index] = *vm.Name
@@ -225,7 +254,7 @@ func (sc *scaleCmd) run(cmd *cobra.Command, args []string) error {
 		if currentNodeCount > sc.newDesiredAgentCount {
 			if sc.masterFQDN == "" {
 				cmd.Usage()
-				log.Fatal("master-FQDN is required to scale down a kubernetes cluster's agent pool")
+				return fmt.Errorf("master-FQDN is required to scale down a kubernetes cluster's agent pool")
 			}
 
 			vmsToDelete := make([]string, 0)
@@ -233,15 +262,33 @@ func (sc *scaleCmd) run(cmd *cobra.Command, args []string) error {
 				vmsToDelete = append(vmsToDelete, indexToVM[i])
 			}
 
-			if orchestratorInfo.OrchestratorType == api.Kubernetes {
-				err = sc.drainNodes(vmsToDelete)
+			switch orchestratorInfo.OrchestratorType {
+			case api.Kubernetes:
+				kubeConfig, err := acsengine.GenerateKubeConfig(sc.containerService.Properties, sc.location)
 				if err != nil {
-					log.Errorf("Got error %+v, while draining the nodes to be deleted", err)
-					return err
+					return fmt.Errorf("failed to generate kube config: %v", err)
+				}
+				err = sc.drainNodes(kubeConfig, vmsToDelete)
+				if err != nil {
+					return fmt.Errorf("Got error %+v, while draining the nodes to be deleted", err)
+				}
+			case api.OpenShift:
+				bundle := bytes.NewReader(sc.containerService.Properties.OrchestratorProfile.OpenShiftConfig.ConfigBundles["master"])
+				fs, err := filesystem.NewTGZReader(bundle)
+				if err != nil {
+					return fmt.Errorf("failed to read master bundle: %v", err)
+				}
+				kubeConfig, err := fs.ReadFile("etc/origin/master/admin.kubeconfig")
+				if err != nil {
+					return fmt.Errorf("failed to read kube config: %v", err)
+				}
+				err = sc.drainNodes(string(kubeConfig), vmsToDelete)
+				if err != nil {
+					return fmt.Errorf("Got error %v, while draining the nodes to be deleted", err)
 				}
 			}
 
-			errList := operations.ScaleDownVMs(sc.client, sc.logger, sc.resourceGroupName, vmsToDelete...)
+			errList := operations.ScaleDownVMs(sc.client, sc.logger, sc.SubscriptionID.String(), sc.resourceGroupName, vmsToDelete...)
 			if errList != nil {
 				errorMessage := ""
 				for element := errList.Front(); element != nil; element = element.Next() {
@@ -259,13 +306,23 @@ func (sc *scaleCmd) run(cmd *cobra.Command, args []string) error {
 	} else {
 		vmssList, err := sc.client.ListVirtualMachineScaleSets(sc.resourceGroupName)
 		if err != nil {
-			log.Fatalln("failed to get vmss list in the resource group. Error: %s", err.Error())
+			return fmt.Errorf("failed to get vmss list in the resource group. Error: %s", err.Error())
 		}
 		for _, vmss := range *vmssList.Value {
-			poolName, nameSuffix, err := utils.VmssNameParts(*vmss.Name)
-			if err != nil || !strings.EqualFold(poolName, sc.agentPoolToScale) || !strings.EqualFold(nameSuffix, sc.nameSuffix) {
+			vmTags := *vmss.Tags
+			poolName := *vmTags["poolName"]
+			nameSuffix := *vmTags["resourceNameSuffix"]
+
+			//Changed to string contains for the nameSuffix as the Windows Agent Pools use only a substring of the first 5 characters of the entire nameSuffix
+			if err != nil || !strings.EqualFold(poolName, sc.agentPoolToScale) || !strings.Contains(sc.nameSuffix, nameSuffix) {
 				continue
 			}
+
+			osPublisher := *vmss.VirtualMachineProfile.StorageProfile.ImageReference.Publisher
+			if strings.EqualFold(osPublisher, "MicrosoftWindowsServer") {
+				_, _, winPoolIndex, err = utils.WindowsVMSSNameParts(*vmss.Name)
+			}
+
 			currentNodeCount = int(*vmss.Sku.Capacity)
 			highestUsedIndex = 0
 		}
@@ -278,19 +335,18 @@ func (sc *scaleCmd) run(cmd *cobra.Command, args []string) error {
 	}
 	templateGenerator, err := acsengine.InitializeTemplateGenerator(ctx, sc.classicMode)
 	if err != nil {
-		log.Fatalln("failed to initialize template generator: %s", err.Error())
+		return fmt.Errorf("failed to initialize template generator: %s", err.Error())
 	}
 
 	sc.containerService.Properties.AgentPoolProfiles = []*api.AgentPoolProfile{sc.agentPool}
 
 	template, parameters, _, err := templateGenerator.GenerateTemplate(sc.containerService, acsengine.DefaultGeneratorCode, false, BuildTag)
 	if err != nil {
-		log.Fatalf("error generating template %s: %s", sc.apiModelPath, err.Error())
-		os.Exit(1)
+		return fmt.Errorf("error generating template %s: %s", sc.apiModelPath, err.Error())
 	}
 
 	if template, err = transform.PrettyPrintArmTemplate(template); err != nil {
-		log.Fatalf("error pretty printing template: %s \n", err.Error())
+		return fmt.Errorf("error pretty printing template: %s", err.Error())
 	}
 
 	templateJSON := make(map[string]interface{})
@@ -298,12 +354,12 @@ func (sc *scaleCmd) run(cmd *cobra.Command, args []string) error {
 
 	err = json.Unmarshal([]byte(template), &templateJSON)
 	if err != nil {
-		log.Fatalln(err)
+		return err
 	}
 
 	err = json.Unmarshal([]byte(parameters), &parametersJSON)
 	if err != nil {
-		log.Fatalln(err)
+		return err
 	}
 
 	transformer := transform.Transformer{Translator: ctx.Translator}
@@ -315,12 +371,22 @@ func (sc *scaleCmd) run(cmd *cobra.Command, args []string) error {
 	}
 	addValue(parametersJSON, sc.agentPool.Name+"Count", countForTemplate)
 
+	if winPoolIndex != -1 {
+		templateJSON["variables"].(map[string]interface{})[sc.agentPool.Name+"Index"] = winPoolIndex
+	}
 	switch orchestratorInfo.OrchestratorType {
+	case api.OpenShift:
+		err = transformer.NormalizeForOpenShiftVMASScalingUp(sc.logger, sc.agentPool.Name, templateJSON)
+		if err != nil {
+			return fmt.Errorf("error tranforming the template for scaling template %s: %v", sc.apiModelPath, err)
+		}
+		if sc.agentPool.IsAvailabilitySets() {
+			addValue(parametersJSON, fmt.Sprintf("%sOffset", sc.agentPool.Name), highestUsedIndex+1)
+		}
 	case api.Kubernetes:
 		err = transformer.NormalizeForK8sVMASScalingUp(sc.logger, templateJSON)
 		if err != nil {
-			log.Fatalf("error tranforming the template for scaling template %s: %s", sc.apiModelPath, err.Error())
-			os.Exit(1)
+			return fmt.Errorf("error tranforming the template for scaling template %s: %s", sc.apiModelPath, err.Error())
 		}
 		if sc.agentPool.IsAvailabilitySets() {
 			addValue(parametersJSON, fmt.Sprintf("%sOffset", sc.agentPool.Name), highestUsedIndex+1)
@@ -329,8 +395,7 @@ func (sc *scaleCmd) run(cmd *cobra.Command, args []string) error {
 	case api.SwarmMode:
 	case api.DCOS:
 		if sc.agentPool.IsAvailabilitySets() {
-			log.Fatalf("scaling isn't supported for orchestrator %s, with availability sets", orchestratorInfo.OrchestratorType)
-			os.Exit(1)
+			return fmt.Errorf("scaling isn't supported for orchestrator %s, with availability sets", orchestratorInfo.OrchestratorType)
 		}
 		transformer.NormalizeForVMSSScaling(sc.logger, templateJSON)
 	}
@@ -345,7 +410,7 @@ func (sc *scaleCmd) run(cmd *cobra.Command, args []string) error {
 		parametersJSON,
 		nil)
 	if err != nil {
-		log.Fatalln(err)
+		return err
 	}
 
 	apiloader := &api.Apiloader{
@@ -383,11 +448,7 @@ func addValue(m paramsMap, k string, v interface{}) {
 	}
 }
 
-func (sc *scaleCmd) drainNodes(vmsToDelete []string) error {
-	kubeConfig, err := acsengine.GenerateKubeConfig(sc.containerService.Properties, sc.location)
-	if err != nil {
-		log.Fatalf("failed to generate kube config: %v", err) // TODO: cleanup
-	}
+func (sc *scaleCmd) drainNodes(kubeConfig string, vmsToDelete []string) error {
 	masterURL := sc.masterFQDN
 	if !strings.HasPrefix(masterURL, "https://") {
 		masterURL = fmt.Sprintf("https://%s", masterURL)
@@ -397,7 +458,7 @@ func (sc *scaleCmd) drainNodes(vmsToDelete []string) error {
 	defer close(errChan)
 	for _, vmName := range vmsToDelete {
 		go func(vmName string) {
-			err = operations.SafelyDrainNode(sc.client, sc.logger,
+			err := operations.SafelyDrainNode(sc.client, sc.logger,
 				masterURL, kubeConfig, vmName, time.Duration(60)*time.Minute)
 			if err != nil {
 				log.Errorf("Failed to drain node %s, got error %v", vmName, err)

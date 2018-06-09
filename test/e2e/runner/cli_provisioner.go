@@ -3,6 +3,7 @@ package runner
 import (
 	"errors"
 	"fmt"
+	"io/ioutil"
 	"log"
 	"math/rand"
 	"os"
@@ -10,6 +11,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/kelseyhightower/envconfig"
 
 	"github.com/Azure/acs-engine/pkg/helpers"
 	"github.com/Azure/acs-engine/test/e2e/azure"
@@ -21,7 +24,6 @@ import (
 	"github.com/Azure/acs-engine/test/e2e/metrics"
 	onode "github.com/Azure/acs-engine/test/e2e/openshift/node"
 	"github.com/Azure/acs-engine/test/e2e/remote"
-	"github.com/kelseyhightower/envconfig"
 )
 
 // CLIProvisioner holds the configuration needed to provision a clusters
@@ -147,6 +149,12 @@ func (cli *CLIProvisioner) provision() error {
 	}
 	cli.Engine.ExpandedDefinition = csGenerated
 
+	// Both Openshift and Kubernetes deployments should have a kubeconfig available
+	// at this point.
+	if (cli.Config.IsKubernetes() || cli.Config.IsOpenShift()) && !cli.IsPrivate() {
+		cli.Config.SetKubeConfig()
+	}
+
 	// Lets start by just using the normal az group deployment cli for creating a cluster
 	err = cli.Account.CreateDeployment(cli.Config.Name, eng)
 	if err != nil {
@@ -183,7 +191,6 @@ func (cli *CLIProvisioner) generateName() string {
 func (cli *CLIProvisioner) waitForNodes() error {
 	if cli.Config.IsKubernetes() || cli.Config.IsOpenShift() {
 		if !cli.IsPrivate() {
-			cli.Config.SetKubeConfig()
 			log.Println("Waiting on nodes to go into ready state...")
 			ready := node.WaitOnReady(cli.Engine.NodeCount(), 10*time.Second, cli.Config.Timeout)
 			if !ready {
@@ -282,4 +289,19 @@ func (cli *CLIProvisioner) IsPrivate() bool {
 	return (cli.Config.IsKubernetes() || cli.Config.IsOpenShift()) &&
 		cli.Engine.ExpandedDefinition.Properties.OrchestratorProfile.KubernetesConfig.PrivateCluster != nil &&
 		helpers.IsTrueBoolPointer(cli.Engine.ExpandedDefinition.Properties.OrchestratorProfile.KubernetesConfig.PrivateCluster.Enabled)
+}
+
+// FetchActivityLog gets the activity log for the all resource groups used in the provisioner.
+func (cli *CLIProvisioner) FetchActivityLog(acct *azure.Account, logPath string) error {
+	for _, rg := range cli.ResourceGroups {
+		log, err := acct.FetchActivityLog(rg)
+		if err != nil {
+			return fmt.Errorf("cannot fetch activity log for resource group %s: %v", rg, err)
+		}
+		path := filepath.Join(logPath, fmt.Sprintf("activity-log-%s", rg))
+		if err := ioutil.WriteFile(path, []byte(log), 0644); err != nil {
+			return fmt.Errorf("cannot write activity log in file: %v", err)
+		}
+	}
+	return nil
 }

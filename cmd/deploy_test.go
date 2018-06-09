@@ -10,7 +10,7 @@ import (
 	"github.com/Azure/acs-engine/pkg/api"
 	"github.com/Azure/acs-engine/pkg/armhelpers"
 	"github.com/satori/go.uuid"
-	log "github.com/sirupsen/logrus"
+	"github.com/spf13/cobra"
 )
 
 const ExampleAPIModel = `{
@@ -72,6 +72,122 @@ func getAPIModelWithoutServicePrincipalProfile(baseAPIModel string, useManagedId
 		strconv.FormatBool(useManagedIdentity))
 }
 
+func TestNewDeployCmd(t *testing.T) {
+	output := newDeployCmd()
+	if output.Use != deployName || output.Short != deployShortDescription || output.Long != deployLongDescription {
+		t.Fatalf("deploy command should have use %s equal %s, short %s equal %s and long %s equal to %s", output.Use, deployName, output.Short, deployShortDescription, output.Long, versionLongDescription)
+	}
+
+	expectedFlags := []string{"api-model", "dns-prefix", "auto-suffix", "output-directory", "ca-private-key-path", "resource-group", "location", "force-overwrite"}
+	for _, f := range expectedFlags {
+		if output.Flags().Lookup(f) == nil {
+			t.Fatalf("deploy command should have flag %s", f)
+		}
+	}
+}
+
+func TestValidate(t *testing.T) {
+	r := &cobra.Command{}
+	apimodelPath := "apimodel-unit-test.json"
+
+	_, err := os.Create(apimodelPath)
+	if err != nil {
+		t.Fatalf("unable to create test apimodel path: %s", err.Error())
+	}
+	defer os.Remove(apimodelPath)
+
+	cases := []struct {
+		dc          *deployCmd
+		expectedErr error
+		args        []string
+	}{
+		{
+			dc: &deployCmd{
+				apimodelPath:      "",
+				dnsPrefix:         "test",
+				outputDirectory:   "output/test",
+				forceOverwrite:    false,
+				caCertificatePath: "test",
+				caPrivateKeyPath:  "test",
+			},
+			args:        []string{},
+			expectedErr: fmt.Errorf("--api-model was not supplied, nor was one specified as a positional argument"),
+		},
+		{
+			dc: &deployCmd{
+				apimodelPath:      "",
+				dnsPrefix:         "test",
+				outputDirectory:   "output/test",
+				caCertificatePath: "test",
+				caPrivateKeyPath:  "test",
+			},
+			args:        []string{"wrong/path"},
+			expectedErr: fmt.Errorf("specified api model does not exist (wrong/path)"),
+		},
+		{
+			dc: &deployCmd{
+				apimodelPath:      "",
+				dnsPrefix:         "test",
+				outputDirectory:   "output/test",
+				caCertificatePath: "test",
+				caPrivateKeyPath:  "test",
+			},
+			args:        []string{"test/apimodel.json", "some_random_stuff"},
+			expectedErr: fmt.Errorf("too many arguments were provided to 'deploy'"),
+		},
+		{
+			dc: &deployCmd{
+				apimodelPath:      "",
+				dnsPrefix:         "test",
+				outputDirectory:   "output/test",
+				caCertificatePath: "test",
+				caPrivateKeyPath:  "test",
+			},
+			args:        []string{apimodelPath},
+			expectedErr: fmt.Errorf("--location must be specified"),
+		},
+		{
+			dc: &deployCmd{
+				apimodelPath:      "",
+				dnsPrefix:         "test",
+				outputDirectory:   "output/test",
+				caCertificatePath: "test",
+				caPrivateKeyPath:  "test",
+				location:          "west europe",
+			},
+			args:        []string{apimodelPath},
+			expectedErr: nil,
+		},
+		{
+			dc: &deployCmd{
+				apimodelPath:      apimodelPath,
+				dnsPrefix:         "test",
+				outputDirectory:   "output/test",
+				caCertificatePath: "test",
+				caPrivateKeyPath:  "test",
+				location:          "canadaeast",
+			},
+			args:        []string{},
+			expectedErr: nil,
+		},
+	}
+
+	for _, c := range cases {
+		err = c.dc.validate(r, c.args)
+		if err != nil && c.expectedErr != nil {
+			if err.Error() != c.expectedErr.Error() {
+				t.Fatalf("expected validate deploy command to return error %s, but instead got %s", c.expectedErr.Error(), err.Error())
+			}
+		} else {
+			if c.expectedErr != nil {
+				t.Fatalf("expected validate deploy command to return error %s, but instead got no error", c.expectedErr.Error())
+			} else if err != nil {
+				t.Fatalf("expected validate deploy command to return no error, but instead got %s", err.Error())
+			}
+		}
+	}
+}
+
 func TestAutofillApimodelWithoutManagedIdentityCreatesCreds(t *testing.T) {
 	testAutodeployCredentialHandling(t, false, "", "")
 }
@@ -105,7 +221,11 @@ func TestAutoSufixWithDnsPrefixInApiModel(t *testing.T) {
 
 		client: &armhelpers.MockACSEngineClient{},
 	}
-	autofillApimodel(deployCmd)
+
+	err = autofillApimodel(deployCmd)
+	if err != nil {
+		t.Fatalf("unexpected error autofilling the example apimodel: %s", err)
+	}
 
 	defer os.RemoveAll(deployCmd.outputDirectory)
 
@@ -144,7 +264,11 @@ func TestAPIModelWithoutServicePrincipalProfileAndClientIdAndSecretInCmd(t *test
 	}
 	deployCmd.ClientID = TestClientIDInCmd
 	deployCmd.ClientSecret = TestClientSecretInCmd
-	autofillApimodel(deployCmd)
+
+	err = autofillApimodel(deployCmd)
+	if err != nil {
+		t.Fatalf("unexpected error autofilling the example apimodel: %s", err)
+	}
 
 	defer os.RemoveAll(deployCmd.outputDirectory)
 
@@ -190,7 +314,10 @@ func TestAPIModelWithEmptyServicePrincipalProfileAndClientIdAndSecretInCmd(t *te
 	}
 	deployCmd.ClientID = TestClientIDInCmd
 	deployCmd.ClientSecret = TestClientSecretInCmd
-	autofillApimodel(deployCmd)
+	err = autofillApimodel(deployCmd)
+	if err != nil {
+		t.Fatalf("unexpected error autofilling the example apimodel: %s", err)
+	}
 
 	defer os.RemoveAll(deployCmd.outputDirectory)
 
@@ -228,7 +355,10 @@ func TestAPIModelWithoutServicePrincipalProfileAndWithoutClientIdAndSecretInCmd(
 
 		client: &armhelpers.MockACSEngineClient{},
 	}
-	autofillApimodel(deployCmd)
+	err = autofillApimodel(deployCmd)
+	if err != nil {
+		t.Fatalf("unexpected error autofilling the example apimodel: %s", err)
+	}
 
 	defer os.RemoveAll(deployCmd.outputDirectory)
 
@@ -259,7 +389,10 @@ func TestAPIModelWithEmptyServicePrincipalProfileAndWithoutClientIdAndSecretInCm
 
 		client: &armhelpers.MockACSEngineClient{},
 	}
-	autofillApimodel(deployCmd)
+	err = autofillApimodel(deployCmd)
+	if err != nil {
+		t.Fatalf("unexpected error autofilling the example apimodel: %s", err)
+	}
 
 	defer os.RemoveAll(deployCmd.outputDirectory)
 
@@ -306,25 +439,28 @@ func testAutodeployCredentialHandling(t *testing.T, useManagedIdentity bool, cli
 		client: &armhelpers.MockACSEngineClient{},
 	}
 
-	autofillApimodel(deployCmd)
+	err = autofillApimodel(deployCmd)
+	if err != nil {
+		t.Fatalf("unexpected error autofilling the example apimodel: %s", err)
+	}
 
 	// cleanup, since auto-populations creates dirs and saves the SSH private key that it might create
 	defer os.RemoveAll(deployCmd.outputDirectory)
 
-	cs, _, err = revalidateApimodel(apiloader, cs, ver)
+	cs, _, err = validateApimodel(apiloader, cs, ver)
 	if err != nil {
-		log.Fatalf("unexpected error validating apimodel after populating defaults: %s", err)
+		t.Fatalf("unexpected error validating apimodel after populating defaults: %s", err)
 	}
 
 	if useManagedIdentity {
 		if cs.Properties.ServicePrincipalProfile != nil &&
 			(cs.Properties.ServicePrincipalProfile.ClientID != "" || cs.Properties.ServicePrincipalProfile.Secret != "") {
-			log.Fatalf("Unexpected credentials were populated even though MSI was active.")
+			t.Fatalf("Unexpected credentials were populated even though MSI was active.")
 		}
 	} else {
 		if cs.Properties.ServicePrincipalProfile == nil ||
 			cs.Properties.ServicePrincipalProfile.ClientID == "" || cs.Properties.ServicePrincipalProfile.Secret == "" {
-			log.Fatalf("Credentials were missing even though MSI was not active.")
+			t.Fatalf("Credentials were missing even though MSI was not active.")
 		}
 	}
 }

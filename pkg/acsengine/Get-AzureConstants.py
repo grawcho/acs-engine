@@ -11,10 +11,14 @@ def getAllSizes():
     sizeMap = {}
 
     for location in locations:
-        sizes = json.loads(subprocess.check_output(['az', 'vm', 'list-sizes', '-l', location['name']]).decode('utf-8'))
-        for size in sizes:
-            if not size['name'] in sizeMap and not size['name'].split('_')[0] == 'Basic':
-                sizeMap[size['name']] = size
+        # No registered resource provider found for location 'francesouth' and API version '2017-12-01' for type 'locations/vmSizes'.
+        # No registered resource provider found for location 'australiacentral' and API version '2017-12-01' for type 'locations/vmSizes'.
+        # No registered resource provider found for location 'australiacentral2' and API version '2017-12-01' for type 'locations/vmSizes'.
+        if location['name'] != "francesouth" and location['name'] != "australiacentral" and location['name'] != "australiacentral2":
+            sizes = json.loads(subprocess.check_output(['az', 'vm', 'list-sizes', '-l', location['name']]).decode('utf-8'))
+            for size in sizes:
+                if not size['name'] in sizeMap and not size['name'].split('_')[0] == 'Basic':
+                    sizeMap[size['name']] = size
 
     return sizeMap
 
@@ -51,6 +55,8 @@ def getLocations():
     #hard code Azure China Cloud location
     locationList.append('chinanorth')
     locationList.append('chinaeast')
+    locationList.append('chinanorth2')
+    locationList.append('chinaeast2')
     # Adding two Canary locations
     locationList.append('centraluseuap')
     locationList.append('eastus2euap')
@@ -82,6 +88,8 @@ var AzureLocations = []string{
 
     text += r"""        "chinaeast",
 	"chinanorth",
+	"chinanorth2",
+	"chinaeast2",
 	"germanycentral",
 	"germanynortheast",
 	"usgovvirginia",

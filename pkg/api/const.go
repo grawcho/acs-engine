@@ -63,6 +63,14 @@ const (
 	AvailabilitySet = "AvailabilitySet"
 	// VirtualMachineScaleSets means that the vms are in a virtual machine scaleset
 	VirtualMachineScaleSets = "VirtualMachineScaleSets"
+	// ScaleSetPriorityRegular is the default ScaleSet Priority
+	ScaleSetPriorityRegular = "Regular"
+	// ScaleSetPriorityLow means the ScaleSet will use Low-priority VMs
+	ScaleSetPriorityLow = "Low"
+	// ScaleSetEvictionPolicyDelete is the default Eviction Policy for Low-priority VM ScaleSets
+	ScaleSetEvictionPolicyDelete = "Delete"
+	// ScaleSetEvictionPolicyDeallocate means a Low-priority VM ScaleSet will deallocate, rather than delete, VMs.
+	ScaleSetEvictionPolicyDeallocate = "Deallocate"
 )
 
 // storage profiles
@@ -73,21 +81,6 @@ const (
 	ManagedDisks = "ManagedDisks"
 )
 
-const (
-	// DCOSVersion1Dot11Dot0 is the major.minor.patch string for 1.11.0 versions of DCOS
-	DCOSVersion1Dot11Dot0 string = "1.11.0"
-	// DCOSVersion1Dot10Dot0 is the major.minor.patch string for 1.10.0 versions of DCOS
-	DCOSVersion1Dot10Dot0 string = "1.10.0"
-	// DCOSVersion1Dot9Dot0 is the major.minor.patch string for 1.9.0 versions of DCOS
-	DCOSVersion1Dot9Dot0 string = "1.9.0"
-	// DCOSVersion1Dot9Dot8 is the major.minor.patch string for 1.9.8 versions of DCOS
-	DCOSVersion1Dot9Dot8 string = "1.9.8"
-	// DCOSVersion1Dot8Dot8 is the major.minor.patch string for 1.8.8 versions of DCOS
-	DCOSVersion1Dot8Dot8 string = "1.8.8"
-	// DCOSDefaultVersion is the default major.minor.patch version for DCOS
-	DCOSDefaultVersion string = DCOSVersion1Dot11Dot0
-)
-
 // To identify programmatically generated public agent pools
 const publicAgentPoolSuffix = "-public"
 
@@ -96,6 +89,8 @@ const (
 	DefaultTillerAddonEnabled = true
 	// DefaultACIConnectorAddonEnabled determines the acs-engine provided default for enabling aci connector addon
 	DefaultACIConnectorAddonEnabled = false
+	// DefaultClusterAutoscalerAddonEnabled determines the acs-engine provided default for enabling cluster autoscaler addon
+	DefaultClusterAutoscalerAddonEnabled = false
 	// DefaultDashboardAddonEnabled determines the acs-engine provided default for enabling kubernetes-dashboard addon
 	DefaultDashboardAddonEnabled = true
 	// DefaultReschedulerAddonEnabled determines the acs-engine provided default for enabling kubernetes-rescheduler addon
@@ -108,16 +103,26 @@ const (
 	DefaultSecureKubeletEnabled = true
 	// DefaultMetricsServerAddonEnabled determines the acs-engine provided default for enabling kubernetes metrics-server addon
 	DefaultMetricsServerAddonEnabled = false
+	// DefaultNVIDIADevicePluginAddonEnabled determines the acs-engine provided default for enabling NVIDIA Device Plugin
+	DefaultNVIDIADevicePluginAddonEnabled = false
+	// DefaultContainerMonitoringAddonEnabled determines the acs-engine provided default for enabling kubernetes container monitoring addon
+	DefaultContainerMonitoringAddonEnabled = false
 	// DefaultTillerAddonName is the name of the tiller addon deployment
 	DefaultTillerAddonName = "tiller"
 	// DefaultACIConnectorAddonName is the name of the tiller addon deployment
 	DefaultACIConnectorAddonName = "aci-connector"
+	// DefaultClusterAutoscalerAddonName is the name of the cluster autoscaler addon deployment
+	DefaultClusterAutoscalerAddonName = "cluster-autoscaler"
 	// DefaultDashboardAddonName is the name of the kubernetes-dashboard addon deployment
 	DefaultDashboardAddonName = "kubernetes-dashboard"
 	// DefaultReschedulerAddonName is the name of the rescheduler addon deployment
 	DefaultReschedulerAddonName = "rescheduler"
 	// DefaultMetricsServerAddonName is the name of the kubernetes metrics server addon deployment
 	DefaultMetricsServerAddonName = "metrics-server"
+	// DefaultNVIDIADevicePluginAddonName is the name of the NVIDIA device plugin addon deployment
+	DefaultNVIDIADevicePluginAddonName = "nvidia-device-plugin"
+	// ContainerMonitoringAddonName is the name of the kubernetes Container Monitoring addon deployment
+	ContainerMonitoringAddonName = "container-monitoring"
 	// DefaultPrivateClusterEnabled determines the acs-engine provided default for enabling kubernetes Private Cluster
 	DefaultPrivateClusterEnabled = false
 	// NetworkPolicyAzure is the string expression for the deprecated NetworkPolicy usage pattern "azure"

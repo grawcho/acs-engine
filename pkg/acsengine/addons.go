@@ -33,6 +33,11 @@ func kubernetesAddonSettingsInit(profile *api.Properties) []kubernetesFeatureSet
 			true,
 		},
 		{
+			"kubernetesmasteraddons-nvidia-device-plugin-daemonset.yaml",
+			"nvidia-device-plugin.yaml",
+			profile.IsNVIDIADevicePluginEnabled(),
+		},
+		{
 			"kubernetesmasteraddons-kubernetes-dashboard-deployment.yaml",
 			"kubernetes-dashboard-deployment.yaml",
 			profile.OrchestratorProfile.KubernetesConfig.IsDashboardEnabled(),
@@ -58,6 +63,11 @@ func kubernetesAddonSettingsInit(profile *api.Properties) []kubernetesFeatureSet
 			profile.OrchestratorProfile.KubernetesConfig.IsACIConnectorEnabled(),
 		},
 		{
+			"kubernetesmasteraddons-cluster-autoscaler-deployment.yaml",
+			"cluster-autoscaler-deployment.yaml",
+			profile.OrchestratorProfile.KubernetesConfig.IsClusterAutoscalerEnabled(),
+		},
+		{
 			"kubernetesmasteraddons-kube-rescheduler-deployment.yaml",
 			"kube-rescheduler-deployment.yaml",
 			profile.OrchestratorProfile.KubernetesConfig.IsReschedulerEnabled(),
@@ -75,7 +85,7 @@ func kubernetesAddonSettingsInit(profile *api.Properties) []kubernetesFeatureSet
 		{
 			"kubernetesmasteraddons-flannel-daemonset.yaml",
 			"flannel-daemonset.yaml",
-			profile.OrchestratorProfile.KubernetesConfig.NetworkPolicy == NetworkPolicyFlannel,
+			profile.OrchestratorProfile.KubernetesConfig.NetworkPlugin == NetworkPluginFlannel,
 		},
 		{
 			"kubernetesmasteraddons-aad-default-admin-group-rbac.yaml",
@@ -91,6 +101,11 @@ func kubernetesAddonSettingsInit(profile *api.Properties) []kubernetesFeatureSet
 			"kubernetesmasteraddons-metrics-server-deployment.yaml",
 			"kube-metrics-server-deployment.yaml",
 			profile.OrchestratorProfile.IsMetricsServerEnabled(),
+		},
+		{
+			"omsagent-daemonset.yaml",
+			"omsagent-daemonset.yaml",
+			profile.OrchestratorProfile.IsContainerMonitoringEnabled(),
 		},
 	}
 }

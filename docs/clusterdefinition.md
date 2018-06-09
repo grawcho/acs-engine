@@ -23,6 +23,7 @@ Here are the valid values for the orchestrator types:
 2. `Kubernetes` - this represents the [Kubernetes orchestrator](kubernetes.md).
 3. `Swarm` - this represents the [Swarm orchestrator](swarm.md).
 4. `Swarm Mode` - this represents the [Swarm Mode orchestrator](swarmmode.md).
+5. `OpenShift` - this represents the [OpenShift orchestrator](openshift.md).
 
 ### kubernetesConfig
 
@@ -30,33 +31,34 @@ Here are the valid values for the orchestrator types:
 
 |Name|Required|Description|
 |---|---|---|
-|kubernetesImageBase|no|Specifies the base URL (everything preceding the actual image filename) of the kubernetes hyperkube image to use for cluster deployment, e.g., `k8s-gcrio.azureedge.net/`|
-|dockerEngineVersion|no|Which version of docker-engine to use in your cluster, e.g. "17.03.*"|
-|networkPlugin|no|Specifies the network plugin implementation for the cluster. Valid values are:<br>`"azure"` (default), which provides an Azure native networking experience, or <br>`"kubenet"` for k8s software networking implementation.|
-|networkPolicy|no|Specifies the network policy enforcement tool for the cluster (currently Linux-only). Valid values are:<br>`calico` for Calico network policy.<br>`cilium` for cilium network policy (Lin).<br>See [network policy examples](../examples/networkpolicy) for more information|
-|containerRuntime|no|The container runtime to use as a backend. The default is `docker`. The only other option is `clear-containers`|
+|addons|no|Configure various Kubernetes addons configuration (currently supported: tiller, kubernetes-dashboard). See `addons` configuration below|
+|apiServerConfig|no|Configure various runtime configuration for apiserver. See `apiServerConfig` [below](#feat-apiserver-config)|
+|cloudControllerManagerConfig|no|Configure various runtime configuration for cloud-controller-manager. See `cloudControllerManagerConfig` [below](#feat-cloud-controller-manager-config)|
 |clusterSubnet|no|The IP subnet used for allocating IP addresses for pod network interfaces. The subnet must be in the VNET address space. Default value is 10.244.0.0/16|
+|containerRuntime|no|The container runtime to use as a backend. The default is `docker`. The other options are `clear-containers` and `containerd`|
+|controllerManagerConfig|no|Configure various runtime configuration for controller-manager. See `controllerManagerConfig` [below](#feat-controller-manager-config)|
+|customWindowsPackageURL|no|Configure custom windows Kubernetes release package URL for deployment on Windows|
 |dnsServiceIP|no|IP address for kube-dns to listen on. If specified must be in the range of `serviceCidr`|
 |dockerBridgeSubnet|no|The specific IP and subnet used for allocating IP addresses for the docker bridge network created on the kubernetes master and agents. Default value is 172.17.0.1/16. This value is used to configure the docker daemon using the [--bip flag](https://docs.docker.com/engine/userguide/networking/default_network/custom-docker0)|
-|serviceCidr|no|IP range for Service IPs, Default is "10.0.0.0/16". This range is never routed outside of a node so does not need to lie within clusterSubnet or the VNET|
-|enableRbac|no|Enable [Kubernetes RBAC](https://kubernetes.io/docs/admin/authorization/rbac/) (boolean - default == true) |
+|dockerEngineVersion|no|Which version of docker-engine to use in your cluster, e.g. "17.03.*"|
 |enableAggregatedAPIs|no|Enable [Kubernetes Aggregated APIs](https://kubernetes.io/docs/concepts/api-extension/apiserver-aggregation/).This is required by [Service Catalog](https://github.com/kubernetes-incubator/service-catalog/blob/master/README.md). (boolean - default == false) |
 |enableDataEncryptionAtRest|no|Enable [kubernetes data encryption at rest](https://kubernetes.io/docs/tasks/administer-cluster/encrypt-data/).This is currently an alpha feature. (boolean - default == false) |
-|etcdEncryptionKey|no|Enryption key to be used if enableDataEncryptionAtRest is enabled. Defaults to a random, generated, key|
-|enablePodSecurityPolicy|no|Enable [kubernetes pod security policy](https://kubernetes.io/docs/concepts/policy/pod-security-policy/).This is currently a beta feature. (boolean - default == false)|
 |enableEncryptionWithExternalKms|no|Enable [kubernetes data encryption at rest with external KMS](https://kubernetes.io/docs/tasks/administer-cluster/encrypt-data/).This is currently an alpha feature. (boolean - default == false) |
+|enablePodSecurityPolicy|no|Enable [kubernetes pod security policy](https://kubernetes.io/docs/concepts/policy/pod-security-policy/).This is currently a beta feature. (boolean - default == false)|
+|enableRbac|no|Enable [Kubernetes RBAC](https://kubernetes.io/docs/admin/authorization/rbac/) (boolean - default == true) |
 |etcdDiskSizeGB|no|Size in GB to assign to etcd data volume. Defaults (if no user value provided) are: 256 GB for clusters up to 3 nodes; 512 GB for clusters with between 4 and 10 nodes; 1024 GB for clusters with between 11 and 20 nodes; and 2048 GB for clusters with more than 20 nodes|
-|privateCluster|no|Build a cluster without public addresses assigned. See `privateClusters` [below](#feat-private-cluster).|
+|etcdEncryptionKey|no|Enryption key to be used if enableDataEncryptionAtRest is enabled. Defaults to a random, generated, key|
 |gcHighThreshold|no|Sets the --image-gc-high-threshold value on the kublet configuration. Default is 85. [See kubelet Garbage Collection](https://kubernetes.io/docs/concepts/cluster-administration/kubelet-garbage-collection/) |
 |gcLowThreshold|no|Sets the --image-gc-low-threshold value on the kublet configuration. Default is 80. [See kubelet Garbage Collection](https://kubernetes.io/docs/concepts/cluster-administration/kubelet-garbage-collection/) |
-|useInstanceMetadata|no|Use the Azure cloudprovider instance metadata service for appropriate resource discovery operations. Default is `true`|
-|addons|no|Configure various Kubernetes addons configuration (currently supported: tiller, kubernetes-dashboard). See `addons` configuration below|
 |kubeletConfig|no|Configure various runtime configuration for kubelet. See `kubeletConfig` [below](#feat-kubelet-config)|
-|controllerManagerConfig|no|Configure various runtime configuration for controller-manager. See `controllerManagerConfig` [below](#feat-controller-manager-config)|
-|cloudControllerManagerConfig|no|Configure various runtime configuration for cloud-controller-manager. See `cloudControllerManagerConfig` [below](#feat-cloud-controller-manager-config)|
-|apiServerConfig|no|Configure various runtime configuration for apiserver. See `apiServerConfig` [below](#feat-apiserver-config)|
+|kubernetesImageBase|no|Specifies the base URL (everything preceding the actual image filename) of the kubernetes hyperkube image to use for cluster deployment, e.g., `k8s-gcrio.azureedge.net/`|
+|networkPlugin|no|Specifies the network plugin implementation for the cluster. Valid values are:<br>`"azure"` (default), which provides an Azure native networking experience <br>`"kubenet"` for k8s software networking implementation. <br> `"flannel"` for using CoreOS Flannel <br> `"cilium"` for using the default Cilium CNI IPAM |
+|networkPolicy|no|Specifies the network policy enforcement tool for the cluster (currently Linux-only). Valid values are:<br>`calico` for Calico network policy.<br>`cilium` for cilium network policy (Lin).<br>See [network policy examples](../examples/networkpolicy) for more information|
+|privateCluster|no|Build a cluster without public addresses assigned. See `privateClusters` [below](#feat-private-cluster).|
 |schedulerConfig|no|Configure various runtime configuration for scheduler. See `schedulerConfig` [below](#feat-scheduler-config)|
-|customWindowsPackageURL|no|Configure custom windows Kubernetes release package URL for deployment on Windows|
+|serviceCidr|no|IP range for Service IPs, Default is "10.0.0.0/16". This range is never routed outside of a node so does not need to lie within clusterSubnet or the VNET|
+|useInstanceMetadata|no|Use the Azure cloudprovider instance metadata service for appropriate resource discovery operations. Default is `true`|
+|useManagedIdentity|no| Includes and uses MSI identities for all interactions with the Azure Resource Manager (ARM) API. Instead of using a static service principal written to /etc/kubernetes/azure.json, Kubernetes will use a dynamic, time-limited token fetched from the MSI extension running on master and agent nodes. This support is currently alpha and requires Kubernetes v1.9.1 or newer. (boolean - default == false) |
 
 #### addons
 
@@ -170,13 +172,15 @@ Below is a list of kubelet options that acs-engine will configure by default:
 |"--cloud-provider"|"azure"|
 |"--cluster-domain"|"cluster.local"|
 |"--pod-infra-container-image"|"pause-amd64:*version*"|
-|"--max-pods"|"30", or "100" if using kubenet --network-plugin (i.e., `"networkPlugin": "kubenet"`)|
+|"--max-pods"|"30", or "110" if using kubenet --network-plugin (i.e., `"networkPlugin": "kubenet"`)|
 |"--eviction-hard"|"memory.available<100Mi,nodefs.available<10%,nodefs.inodesFree<5%"|
 |"--node-status-update-frequency"|"10s"|
 |"--image-gc-high-threshold"|"85"|
 |"--image-gc-low-threshold"|"850"|
 |"--non-masquerade-cidr"|"10.0.0.0/8"|
 |"--azure-container-registry-config"|"/etc/kubernetes/azure.json"|
+|"--pod-max-pids"|"100" (need to activate the feature in --feature-gates=SupportPodPidsLimit=true)|
+|"--image-pull-progress-deadline"|"30m"|
 |"--feature-gates"|No default (can be a comma-separated list). On agent nodes `Accelerators=true` will be applied in the `--feature-gates` option for k8s versions before 1.11.0|
 
 Below is a list of kubelet options that are *not* currently user-configurable, either because a higher order configuration vector is available that enforces kubelet configuration, or because a static configuration is required to build a functional cluster:
@@ -310,7 +314,8 @@ Below is a list of apiserver options that acs-engine will configure by default:
 
 |apiserver option|default value|
 |---|---|
-|"--admission-control"|"NamespaceLifecycle, LimitRanger, ServiceAccount, DefaultStorageClass, ResourceQuota, DenyEscalatingExec, AlwaysPullImages"|
+|"--admission-control"|"NamespaceLifecycle,LimitRanger,ServiceAccount,DefaultStorageClass,ResourceQuota,DenyEscalatingExec,AlwaysPullImages" (Kubernetes versions prior to 1.9.0|
+|"--enable-admission-plugins"`*`|"NamespaceLifecycle,LimitRanger,ServiceAccount,DefaultStorageClass,DefaultTolerationSeconds,MutatingAdmissionWebhook,ValidatingAdmissionWebhook,ResourceQuota,DenyEscalatingExec,AlwaysPullImages" (Kubernetes versions 1.9.0 and later|
 |"--authorization-mode"|"Node", "RBAC" (*the latter if enabledRbac is true*)|
 |"--audit-log-maxage"|"30"|
 |"--audit-log-maxbackup"|"10"|
@@ -320,6 +325,8 @@ Below is a list of apiserver options that acs-engine will configure by default:
 |"--oidc-groups-claim"|"groups" (*if has AADProfile*)|
 |"--oidc-client-id"|*calculated value that represents OID client ID* (*if has AADProfile*)|
 |"--oidc-issuer-url"|*calculated value that represents OID issuer URL* (*if has AADProfile*)|
+
+`*` In Kubernetes versions 1.10.0 and later the `--admission-control` flag is deprecated and `--enable-admission-plugins` is used in its stead.
 
 
 Below is a list of apiserver options that are *not* currently user-configurable, either because a higher order configuration vector is available that enforces apiserver configuration, or because a static configuration is required to build a functional cluster:
@@ -433,15 +440,18 @@ We consider `kubeletConfig`, `controllerManagerConfig`, `apiServerConfig`, and `
 |vnetCidr|no|Specifies the VNET cidr when using a custom VNET ([bring your own VNET examples](../examples/vnet))|
 |imageReference.name|no|The name of the Linux OS image. Needs to be used in conjunction with resourceGroup, below|
 |imageReference.resourceGroup|no|Resource group that contains the Linux OS image. Needs to be used in conjunction with name, above|
-|distro|no|Select Master(s) Operating System (Linux only). Currently supported values are: `ubuntu` and `coreos` (CoreOS support is currently experimental). Defaults to `ubuntu` if undefined. Currently supported OS and orchestrator configurations -- `ubuntu`: DCOS, Docker Swarm, Kubernetes; `coreos`: Kubernetes. [Example of CoreOS Master with CoreOS Agents](../examples/coreos/kubernetes-coreos.json)|
+|distro|no|Select Master(s) Operating System (Linux only). Currently supported values are: `ubuntu` and `coreos` (CoreOS support is currently experimental). Defaults to `ubuntu` if undefined. Currently supported OS and orchestrator configurations -- `ubuntu`: DCOS, Docker Swarm, Kubernetes; `RHEL`: OpenShift; `coreos`: Kubernetes. [Example of CoreOS Master with CoreOS Agents](../examples/coreos/kubernetes-coreos.json)|
+|customFiles|no|The custom files to be provisioned to the master nodes. Defined as an array of json objects with each defined as `"source":"absolute-local-path", "dest":"absolute-path-on-masternodes"`.[See examples](../examples/customfiles) |
 
 ### agentPoolProfiles
 A cluster can have 0 to 12 agent pool profiles. Agent Pool Profiles are used for creating agents with different capabilities such as VMSizes, VMSS or Availability Set, Public/Private access, user-defined OS Images, [attached storage disks](../examples/disks-storageaccount), [attached managed disks](../examples/disks-managed), or [Windows](../examples/windows).
 
 |Name|Required|Description|
 |---|---|---|
-|availabilityProfile|no|Supported values are `VirtualMachineScaleSets` (default) and `AvailabilitySet`.  For Kubernetes clusters before version 1.10, use `AvailabilitySet`. Otherwise, you should use `VirtualMachineScaleSets`|
+|availabilityProfile|no|Supported values are `VirtualMachineScaleSets` (default, except for Kubernetes clusters before version 1.10) and `AvailabilitySet`.|
 |count|yes|Describes the node count|
+|scaleSetPriority|no|Supported values are `Regular` (default) and `Low`. Only applies to clusters with availabilityProfile `VirtualMachineScaleSets`. Enables the usage of [Low-priority VMs on Scale Sets](https://docs.microsoft.com/en-us/azure/virtual-machine-scale-sets/virtual-machine-scale-sets-use-low-priority).|
+|scaleSetEvictionPolicy|no|Supported values are `Delete` (default) and `Deallocate`. Only applies to clusters with availabilityProfile of `VirtualMachineScaleSets` and scaleSetPriority of `Low`.|
 |diskSizesGB|no|Describes an array of up to 4 attached disk sizes.  Valid disk size values are between 1 and 1024|
 |dnsPrefix|Required if agents are to be exposed publically with a load balancer|The dns prefix that forms the FQDN to access the loadbalancer for this agent pool. This must be a unique name among all agent pools. Not supported for Kubernetes clusters|
 |name|yes|This is the unique name for the agent pool profile. The resources of the agent pool profile are derived from this name|
@@ -453,7 +463,8 @@ A cluster can have 0 to 12 agent pool profiles. Agent Pool Profiles are used for
 |imageReference.name|no|The name of a a Linux OS image. Needs to be used in conjunction with resourceGroup, below|
 |imageReference.resourceGroup|no|Resource group that contains the Linux OS image. Needs to be used in conjunction with name, above|
 |osType|no|Specifies the agent pool's Operating System. Supported values are `Windows` and `Linux`. Defaults to `Linux`|
-|distro|no|Specifies the agent pool's Linux distribution. Supported values are `ubuntu` and `coreos` (CoreOS support is currently experimental). Defaults to `ubuntu` if undefined, unless `osType` is defined as `Windows` (in which case `distro` is unused). Currently supported OS and orchestrator configurations -- `ubuntu`: DCOS, Docker Swarm, Kubernetes; `coreos`: Kubernetes.  [Example of CoreOS Master with Windows and Linux (CoreOS and Ubuntu) Agents](../examples/coreos/kubernetes-coreos-hybrid.json) |
+|distro|no|Specifies the agent pool's Linux distribution. Supported values are `ubuntu` and `coreos` (CoreOS support is currently experimental). Defaults to `ubuntu` if undefined, unless `osType` is defined as `Windows` (in which case `distro` is unused). Currently supported OS and orchestrator configurations -- `ubuntu`: DCOS, Docker Swarm, Kubernetes; `RHEL`: OpenShift; `coreos`: Kubernetes.  [Example of CoreOS Master with Windows and Linux (CoreOS and Ubuntu) Agents](../examples/coreos/kubernetes-coreos-hybrid.json) |
+|acceleratedNetworkingEnabled|no|Use [Azure Accelerated Networking](https://azure.microsoft.com/en-us/blog/maximize-your-vm-s-performance-with-accelerated-networking-now-generally-available-for-both-windows-and-linux/) feature for agents (You must select a VM SKU that support Accelerated Networking)|
 
 ### linuxProfile
 
@@ -464,6 +475,10 @@ A cluster can have 0 to 12 agent pool profiles. Agent Pool Profiles are used for
 |adminUsername|yes|Describes the username to be used on all linux clusters|
 |ssh.publicKeys.keyData|yes|The public SSH key used for authenticating access to all Linux nodes in the cluster.  Here are instructions for [generating a public/private key pair](ssh.md#ssh-key-generation)|
 |secrets|no|Specifies an array of key vaults to pull secrets from and what secrets to pull from each|
+|customSearchDomain.name|no|describes the search domain to be used on all linux clusters|
+|customSearchDomain.realmUser|no|describes the realm user with permissions to update dns registries on Windows Server DNS|
+|customSearchDomain.realmPassword|no|describes the realm user password to update dns registries on Windows Server DNS|
+|customNodesDNS.dnsServer|no|describes the IP address of the DNS Server|
 
 #### secrets
 `secrets` details which certificates to install on the masters and nodes in the cluster.
@@ -517,6 +532,7 @@ Here are the valid values for the orchestrator types:
 2. `Swarm` - this represents the [Swarm orchestrator](swarm.md).
 3. `Kubernetes` - this represents the [Kubernetes orchestrator](kubernetes.md).
 4. `Swarm Mode` - this represents the [Swarm Mode orchestrator](swarmmode.md).
+5. `OpenShift` - this represents the [OpenShift orchestrator](openshift.md)
 
 ### masterProfile
 `masterProfile` describes the settings for master configuration.

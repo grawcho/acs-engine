@@ -29,6 +29,14 @@ const (
 	deployName             = "deploy"
 	deployShortDescription = "Deploy an Azure Resource Manager template"
 	deployLongDescription  = "Deploy an Azure Resource Manager template, parameters file and other assets for a cluster"
+
+	// aadServicePrincipal is a hard-coded service principal which represents
+	// Azure Active Dirctory (see az ad sp list)
+	aadServicePrincipal = "00000002-0000-0000-c000-000000000000"
+
+	// aadPermissionUserRead is the User.Read hard-coded permission on
+	// aadServicePrincipal (see az ad sp list)
+	aadPermissionUserRead = "311a71cc-e848-46a1-bdf8-97ff7156d8e6"
 )
 
 type deployCmd struct {
@@ -65,6 +73,9 @@ func newDeployCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := dc.validate(cmd, args); err != nil {
 				log.Fatalf(fmt.Sprintf("error validating deployCmd: %s", err.Error()))
+			}
+			if err := dc.load(cmd, args); err != nil {
+				log.Fatalln("failed to load apimodel: %s", err.Error())
 			}
 			return dc.run()
 		},
@@ -110,18 +121,25 @@ func (dc *deployCmd) validate(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf(fmt.Sprintf("specified api model does not exist (%s)", dc.apimodelPath))
 	}
 
+	if dc.location == "" {
+		return fmt.Errorf(fmt.Sprintf("--location must be specified"))
+	}
+	dc.location = helpers.NormalizeAzureRegion(dc.location)
+
+	return nil
+}
+
+func (dc *deployCmd) load(cmd *cobra.Command, args []string) error {
+	var err error
+
 	apiloader := &api.Apiloader{
 		Translator: &i18n.Translator{
 			Locale: dc.locale,
 		},
 	}
 
-	if dc.location == "" {
-		return fmt.Errorf(fmt.Sprintf("--location must be specified"))
-	}
-	dc.location = helpers.NormalizeAzureRegion(dc.location)
-
-	dc.containerService, dc.apiVersion, err = apiloader.LoadContainerServiceFromFile(dc.apimodelPath, true, false, nil)
+	// do not validate when initially loading the apimodel, validation is done later after autofilling values
+	dc.containerService, dc.apiVersion, err = apiloader.LoadContainerServiceFromFile(dc.apimodelPath, false, false, nil)
 	if err != nil {
 		return fmt.Errorf(fmt.Sprintf("error parsing the api model: %s", err.Error()))
 	}
@@ -132,17 +150,22 @@ func (dc *deployCmd) validate(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf(fmt.Sprintf("--location does not match api model location"))
 	}
 
-	dc.client, err = dc.authArgs.getClient()
-	if err != nil {
-		return fmt.Errorf(fmt.Sprintf("failed to get client")) // TODO: cleanup
+	if err = dc.authArgs.validateAuthArgs(); err != nil {
+		return fmt.Errorf("%s", err)
 	}
 
-	// autofillApimodel calls log.Fatal() directly and does not return errors
-	autofillApimodel(dc)
-
-	_, _, err = revalidateApimodel(apiloader, dc.containerService, dc.apiVersion)
+	dc.client, err = dc.authArgs.getClient()
 	if err != nil {
-		return fmt.Errorf(fmt.Sprintf("Failed to validate the apimodel after populating values: %s", err))
+		return fmt.Errorf("failed to get client: %s", err.Error())
+	}
+
+	if err = autofillApimodel(dc); err != nil {
+		return err
+	}
+
+	_, _, err = validateApimodel(apiloader, dc.containerService, dc.apiVersion)
+	if err != nil {
+		return fmt.Errorf("Failed to validate the apimodel after populating values: %s", err)
 	}
 
 	dc.random = rand.New(rand.NewSource(time.Now().UnixNano()))
@@ -150,7 +173,7 @@ func (dc *deployCmd) validate(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func autofillApimodel(dc *deployCmd) {
+func autofillApimodel(dc *deployCmd) error {
 	var err error
 
 	if dc.containerService.Properties.LinuxProfile != nil {
@@ -161,11 +184,11 @@ func autofillApimodel(dc *deployCmd) {
 	}
 
 	if dc.dnsPrefix != "" && dc.containerService.Properties.MasterProfile.DNSPrefix != "" {
-		log.Fatalf("invalid configuration: the apimodel masterProfile.dnsPrefix and --dns-prefix were both specified")
+		return fmt.Errorf("invalid configuration: the apimodel masterProfile.dnsPrefix and --dns-prefix were both specified")
 	}
 	if dc.containerService.Properties.MasterProfile.DNSPrefix == "" {
 		if dc.dnsPrefix == "" {
-			log.Fatalf("apimodel: missing masterProfile.dnsPrefix and --dns-prefix was not specified")
+			return fmt.Errorf("apimodel: missing masterProfile.dnsPrefix and --dns-prefix was not specified")
 		}
 		log.Warnf("apimodel: missing masterProfile.dnsPrefix will use %q", dc.dnsPrefix)
 		dc.containerService.Properties.MasterProfile.DNSPrefix = dc.dnsPrefix
@@ -181,7 +204,7 @@ func autofillApimodel(dc *deployCmd) {
 	}
 
 	if _, err := os.Stat(dc.outputDirectory); !dc.forceOverwrite && err == nil {
-		log.Fatalf(fmt.Sprintf("Output directory already exists and forceOverwrite flag is not set: %s", dc.outputDirectory))
+		return fmt.Errorf("Output directory already exists and forceOverwrite flag is not set: %s", dc.outputDirectory)
 	}
 
 	if dc.resourceGroup == "" {
@@ -189,7 +212,7 @@ func autofillApimodel(dc *deployCmd) {
 		log.Warnf("--resource-group was not specified. Using the DNS prefix from the apimodel as the resource group name: %s", dnsPrefix)
 		dc.resourceGroup = dnsPrefix
 		if dc.location == "" {
-			log.Fatal("--resource-group was not specified. --location must be specified in case the resource group needs creation.")
+			return fmt.Errorf("--resource-group was not specified. --location must be specified in case the resource group needs creation")
 		}
 	}
 
@@ -201,7 +224,7 @@ func autofillApimodel(dc *deployCmd) {
 		}
 		_, publicKey, err := acsengine.CreateSaveSSH(dc.containerService.Properties.LinuxProfile.AdminUsername, dc.outputDirectory, translator)
 		if err != nil {
-			log.Fatal("Failed to generate SSH Key")
+			return fmt.Errorf("Failed to generate SSH Key: %s", err.Error())
 		}
 
 		dc.containerService.Properties.LinuxProfile.SSH.PublicKeys = []api.PublicKey{{KeyData: publicKey}}
@@ -209,7 +232,7 @@ func autofillApimodel(dc *deployCmd) {
 
 	_, err = dc.client.EnsureResourceGroup(dc.resourceGroup, dc.location, nil)
 	if err != nil {
-		log.Fatalln(err)
+		return err
 	}
 
 	useManagedIdentity := dc.containerService.Properties.OrchestratorProfile.KubernetesConfig != nil &&
@@ -229,25 +252,21 @@ func autofillApimodel(dc *deployCmd) {
 				appName = fmt.Sprintf("%s.%s.cloudapp.azure.com", appName, dc.containerService.Properties.AzProfile.Location)
 				appURL = fmt.Sprintf("https://%s:8443/", appName)
 				replyURLs = to.StringSlicePtr([]string{fmt.Sprintf("https://%s:8443/oauth2callback/Azure%%20AD", appName)})
-				ra := []graphrbac.ResourceAccess{
+				requiredResourceAccess = &[]graphrbac.RequiredResourceAccess{
 					{
-						// TODO: where is this UUID defined?
-						ID:   to.StringPtr("311a71cc-e848-46a1-bdf8-97ff7156d8e6"),
-						Type: to.StringPtr("Scope"),
+						ResourceAppID: to.StringPtr(aadServicePrincipal),
+						ResourceAccess: &[]graphrbac.ResourceAccess{
+							{
+								ID:   to.StringPtr(aadPermissionUserRead),
+								Type: to.StringPtr("Scope"),
+							},
+						},
 					},
 				}
-				rra := []graphrbac.RequiredResourceAccess{
-					{
-						// TODO: where is this UUID defined?
-						ResourceAppID:  to.StringPtr("00000002-0000-0000-c000-000000000000"),
-						ResourceAccess: &ra,
-					},
-				}
-				requiredResourceAccess = &rra
 			}
 			applicationID, servicePrincipalObjectID, secret, err := dc.client.CreateApp(appName, appURL, replyURLs, requiredResourceAccess)
 			if err != nil {
-				log.Fatalf("apimodel invalid: ServicePrincipalProfile was empty, and we failed to create valid credentials: %q", err)
+				return fmt.Errorf("apimodel invalid: ServicePrincipalProfile was empty, and we failed to create valid credentials: %q", err)
 			}
 			log.Warnf("created application with applicationID (%s) and servicePrincipalObjectID (%s).", applicationID, servicePrincipalObjectID)
 
@@ -255,7 +274,7 @@ func autofillApimodel(dc *deployCmd) {
 
 			err = dc.client.CreateRoleAssignmentSimple(dc.resourceGroup, servicePrincipalObjectID)
 			if err != nil {
-				log.Fatalf("apimodel: could not create or assign ServicePrincipal: %q", err)
+				return fmt.Errorf("apimodel: could not create or assign ServicePrincipal: %q", err)
 
 			}
 
@@ -271,9 +290,10 @@ func autofillApimodel(dc *deployCmd) {
 			}
 		}
 	}
+	return nil
 }
 
-func revalidateApimodel(apiloader *api.Apiloader, containerService *api.ContainerService, apiVersion string) (*api.ContainerService, string, error) {
+func validateApimodel(apiloader *api.Apiloader, containerService *api.ContainerService, apiVersion string) (*api.ContainerService, string, error) {
 	// This isn't terribly elegant, but it's the easiest way to go for now w/o duplicating a bunch of code
 	rawVersionedAPIModel, err := apiloader.SerializeContainerService(containerService, apiVersion)
 	if err != nil {

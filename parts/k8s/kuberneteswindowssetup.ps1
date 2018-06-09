@@ -114,21 +114,16 @@ function
 Get-KubeBinaries()
 {
     $zipfile = "c:\k.zip"
-    Invoke-WebRequest -Uri $global:KubeBinariesSASURL -OutFile $zipfile
+    for ($i=0; $i -le 10; $i++)
+    {
+        Start-BitsTransfer -Source $global:KubeBinariesSASURL -Destination $zipfile
+        if ($?) {
+            break
+        } else {
+            Write-Log $Error[0].Exception.Message
+        }
+    }
     Expand-Archive -path $zipfile -DestinationPath C:\
-}
-
-function
-Install-Package($package)
-{
-    $pkgFile = [Io.path]::Combine($global:KubeDir, $package)
-    $url = $global:WindowsPackageSASURLBase + $package
-    Invoke-WebRequest -Uri $url -OutFile $pkgFile
-    & "$pkgFile" /q /norestart
-
-    $procName = [IO.Path]::GetFileNameWithoutExtension($package)
-    Wait-Process -Name $procName
-    Write-Log "$package installed"
 }
 
 function DownloadFileOverHttp($Url, $DestinationPath)
@@ -163,14 +158,6 @@ function Update-WinCNI()
 function
 Update-WindowsPackages()
 {
-    bcdedit /set TESTSIGNING on
-
-    $packages = @("Windows10.0-KB123456-x64-InstallForTestingPurposesOnly.exe", "Windows10.0-KB999999-x64-InstallForTestingPurposesOnly.exe")
-    foreach ($pkg in $packages)
-    {
-        Install-Package($pkg)
-    }
-
     Update-WinCNI
     Get-HnsPsm1
 }
@@ -237,6 +224,19 @@ function
 New-InfraContainer()
 {
     cd $global:KubeDir
+    $computerInfo = Get-ComputerInfo
+    $windowsBase = if ($computerInfo.WindowsVersion -eq "1709") {
+        "microsoft/nanoserver:1709"
+    } elseif ( ($computerInfo.WindowsVersion -eq "1803") -and ($computerInfo.WindowsBuildLabEx.StartsWith("17134")) ) { 
+        "microsoft/nanoserver:1803"
+    } else { 
+        # This is a temporary workaround. As of May 2018, Windows Server Insider builds still report 1803 which is wrong.
+        # Once that is fixed, add another elseif ( -eq "nnnn") instead and remove the StartsWith("17134") above
+        "microsoft/nanoserver-insider"
+    }
+    
+    "FROM $($windowsBase)" | Out-File -encoding ascii -FilePath Dockerfile
+    "CMD cmd /c ping -t localhost" | Out-File -encoding ascii -FilePath Dockerfile -Append
     docker build -t kubletwin/pause .
 }
 
@@ -272,19 +272,18 @@ Install-VnetPlugins()
 }
 
 function
-Set-AzureNetworkPolicy()
+Set-AzureNetworkPlugin()
 {
     # Azure VNET network policy requires tunnel (hairpin) mode because policy is enforced in the host.
     Set-VnetPluginMode "tunnel"
 }
-
 function
 Set-AzureCNIConfig()
 {
     # Fill in DNS information for kubernetes.
     $fileName  = [Io.path]::Combine("$global:AzureCNIConfDir", "10-azure.conflist")
     $configJson = Get-Content $fileName | ConvertFrom-Json
-    $configJson.plugins.dns.Nameservers[1] = $KubeDnsServiceIp
+    $configJson.plugins.dns.Nameservers[0] = $KubeDnsServiceIp
     $configJson.plugins.dns.Search[0] = $global:KubeDnsSearchPath 
     $configJson.plugins.AdditionalArgs[0].Value.ExceptionList[0] = $global:KubeClusterCIDR
     $configJson.plugins.AdditionalArgs[0].Value.ExceptionList[1] = $global:MasterSubnet
@@ -296,12 +295,11 @@ Set-AzureCNIConfig()
 function
 Set-NetworkConfig
 {
-    Write-Log "Configuring networking with NetworkPolicy:$global:NetworkPolicy"
+    Write-Log "Configuring networking with NetworkPlugin:$global:NetworkPlugin"
 
     # Configure network policy.
-    if ($global:NetworkPolicy -eq "azure") {
+    if ($global:NetworkPlugin -eq "azure") {
         Install-VnetPlugins
-        Set-AzureNetworkPolicy
         Set-AzureCNIConfig
     }
 }
@@ -314,8 +312,10 @@ Write-KubernetesStartFiles($podCIDR)
     $KubeletCommandLine = @"
 c:\k\kubelet.exe --hostname-override=`$env:computername --pod-infra-container-image=kubletwin/pause --resolv-conf="" --allow-privileged=true --enable-debugging-handlers --cluster-dns=`$global:KubeDnsServiceIp --cluster-domain=cluster.local  --kubeconfig=c:\k\config --hairpin-mode=promiscuous-bridge --v=2 --azure-container-registry-config=c:\k\azure.json --runtime-request-timeout=10m  --cloud-provider=azure --cloud-config=c:\k\azure.json
 "@
-
-    if ([System.Version]$global:KubeBinariesVersion -lt [System.Version]"1.8.0")
+    # Regex to strip version to Major.Minor.Build format such that the following check does not crash for version like x.y.z-alpha
+    [regex]$regex = "^[0-9.]+"
+    $KubeBinariesVersionStripped = $regex.Matches($global:KubeBinariesVersion).Value
+    if ([System.Version]$KubeBinariesVersionStripped -lt [System.Version]"1.8.0")
     {
         # --api-server deprecates from 1.8.0
         $KubeletArgList += "--api-servers=https://`${global:MasterIP}:443"
@@ -349,15 +349,18 @@ c:\k\kubelet.exe --hostname-override=`$env:computername --pod-infra-container-im
 `$global:CNIConfig = "$global:CNIConfig"
 `$global:HNSModule = "$global:HNSModule"
 `$global:VolumePluginDir = "$global:VolumePluginDir"
-`$global:NetworkPolicy="$global:NetworkPolicy"
+`$global:NetworkPlugin="$global:NetworkPlugin"
 
 "@
 
-    if ($global:NetworkPolicy -eq "azure") {
+    if ($global:NetworkPlugin -eq "azure") {
         $global:KubeNetwork = "azure"
-        $global:NetworkMode = "L2Tunnel"
         $kubeStartStr += @"
-Write-Host "NetworkPolicy azure, starting kubelet."
+Write-Host "NetworkPlugin azure, starting kubelet."
+
+# Turn off Firewall to enable pods to talk to service endpoints. (Kubelet should eventually do this)
+netsh advfirewall set allprofiles state off
+
 $KubeletCommandLine
 
 "@

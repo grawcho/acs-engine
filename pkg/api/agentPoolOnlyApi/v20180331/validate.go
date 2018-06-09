@@ -25,10 +25,7 @@ func init() {
 func (a *AgentPoolProfile) Validate() error {
 	// Don't need to call validate.Struct(a)
 	// It is handled by Properties.Validate()
-	if e := validatePoolName(a.Name); e != nil {
-		return e
-	}
-	return nil
+	return validatePoolName(a.Name)
 }
 
 // Validate implements APIObject
@@ -38,6 +35,33 @@ func (l *LinuxProfile) Validate() error {
 	if e := validate.Var(l.SSH.PublicKeys[0].KeyData, "required"); e != nil {
 		return fmt.Errorf("KeyData in LinuxProfile.SSH.PublicKeys cannot be empty string")
 	}
+	return nil
+}
+
+// Validate implements APIObject
+func (a *AADProfile) Validate(rbacEnabled *bool) error {
+	if rbacEnabled == nil || *rbacEnabled == false {
+		return ErrorRBACNotEnabledForAAD
+	}
+
+	if e := validate.Var(a.ServerAppID, "required"); e != nil {
+		return ErrorAADServerAppIDNotSet
+	}
+
+	// Don't need to call validate.Struct(l)
+	// It is handled by Properties.Validate()
+	if e := validate.Var(a.ServerAppSecret, "required"); e != nil {
+		return ErrorAADServerAppSecretNotSet
+	}
+
+	if e := validate.Var(a.ClientAppID, "required"); e != nil {
+		return ErrorAADClientAppIDNotSet
+	}
+
+	if e := validate.Var(a.TenantID, "required"); e != nil {
+		return ErrorAADTenantIDNotSet
+	}
+
 	return nil
 }
 
@@ -77,7 +101,7 @@ func (a *Properties) Validate() error {
 
 	// Don't need to call validate.Struct(m)
 	// It is handled by Properties.Validate()
-	if e := validateDNSName(a.DNSPrefix); e != nil {
+	if e := validateDNSPrefix(a.DNSPrefix); e != nil {
 		return e
 	}
 
@@ -101,6 +125,12 @@ func (a *Properties) Validate() error {
 		return e
 	}
 
+	if a.AADProfile != nil {
+		if e := a.AADProfile.Validate(a.EnableRBAC); e != nil {
+			return e
+		}
+	}
+
 	return nil
 }
 
@@ -118,14 +148,14 @@ func validatePoolName(poolName string) error {
 	return nil
 }
 
-func validateDNSName(dnsName string) error {
+func validateDNSPrefix(dnsName string) error {
 	dnsNameRegex := `^([A-Za-z][A-Za-z0-9-]{1,43}[A-Za-z0-9])$`
 	re, err := regexp.Compile(dnsNameRegex)
 	if err != nil {
 		return err
 	}
 	if !re.MatchString(dnsName) {
-		return fmt.Errorf("DNS name '%s' is invalid. The DNS name must contain between 3 and 45 characters.  The name can contain only letters, numbers, and hyphens.  The name must start with a letter and must end with a letter or a number. (length was %d)", dnsName, len(dnsName))
+		return fmt.Errorf("DNSPrefix '%s' is invalid. The DNSPrefix must contain between 3 and 45 characters. The name can contain only letters, numbers, and hyphens.  The name must start with a letter and must end with a letter or a number. (length was %d)", dnsName, len(dnsName))
 	}
 	return nil
 }
@@ -155,6 +185,12 @@ func validateVNET(a *Properties) error {
 				_, serviceCidr, err := net.ParseCIDR(n.ServiceCidr)
 				if err != nil {
 					return ErrorInvalidServiceCidr
+				}
+
+				// validate ServiceCidr not too large
+				var ones, bits = serviceCidr.Mask.Size()
+				if bits-ones > 20 {
+					return ErrorServiceCidrTooLarge
 				}
 
 				// validate DNSServiceIP
@@ -221,7 +257,7 @@ func validateAgentPoolVNET(a []*AgentPoolProfile) error {
 			}
 
 			// validate subscription, resource group and vnet are the same among subnets
-			subnetSubscription, subnetResourceGroup, subnetVnet, _, err := GetVNETSubnetIDComponents(agentPool.VnetSubnetID)
+			subnetSubscription, subnetResourceGroup, subnetVnet, _, err := common.GetVNETSubnetIDComponents(agentPool.VnetSubnetID)
 			if err != nil {
 				return ErrorParsingSubnetID
 			}
@@ -264,18 +300,4 @@ func isCustomVNET(a []*AgentPoolProfile) bool {
 	}
 
 	return false
-}
-
-// GetVNETSubnetIDComponents extract subscription, resourcegroup, vnetname, subnetname from the vnetSubnetID
-func GetVNETSubnetIDComponents(vnetSubnetID string) (string, string, string, string, error) {
-	vnetSubnetIDRegex := `^\/subscriptions\/([^\/]*)\/resourceGroups\/([^\/]*)\/providers\/Microsoft.Network\/virtualNetworks\/([^\/]*)\/subnets\/([^\/]*)$`
-	re, err := regexp.Compile(vnetSubnetIDRegex)
-	if err != nil {
-		return "", "", "", "", err
-	}
-	submatches := re.FindStringSubmatch(vnetSubnetID)
-	if len(submatches) != 5 {
-		return "", "", "", "", fmt.Errorf("matching error")
-	}
-	return submatches[1], submatches[2], submatches[3], submatches[4], nil
 }

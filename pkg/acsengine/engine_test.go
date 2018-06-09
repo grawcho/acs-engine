@@ -546,3 +546,90 @@ func TestIsNSeriesSKU(t *testing.T) {
 		}
 	}
 }
+
+func TestIsCustomVNET(t *testing.T) {
+
+	a := []*api.AgentPoolProfile{
+		{
+			VnetSubnetID: "subnetlink1",
+		},
+		{
+			VnetSubnetID: "subnetlink2",
+		},
+	}
+
+	if !isCustomVNET(a) {
+		t.Fatalf("Expected isCustomVNET to be true when subnet exists for all agent pool profile")
+	}
+
+	a = []*api.AgentPoolProfile{
+		{
+			VnetSubnetID: "subnetlink1",
+		},
+		{
+			VnetSubnetID: "",
+		},
+	}
+
+	if isCustomVNET(a) {
+		t.Fatalf("Expected isCustomVNET to be false when subnet exists for some agent pool profile")
+	}
+
+	a = nil
+
+	if isCustomVNET(a) {
+		t.Fatalf("Expected isCustomVNET to be false when agent pool profiles is nil")
+	}
+}
+
+func TestGenerateIpList(t *testing.T) {
+	count := 3
+	forth := 240
+	ipList := generateIPList(count, fmt.Sprintf("10.0.0.%d", forth))
+	if len(ipList) != 3 {
+		t.Fatalf("IP list size should be %d", count)
+	}
+	for i, ip := range ipList {
+		expected := fmt.Sprintf("10.0.0.%d", forth+i)
+		if ip != expected {
+			t.Fatalf("wrong IP %s. Expected %s", ip, expected)
+		}
+	}
+}
+
+func TestGenerateKubeConfig(t *testing.T) {
+	locale := gotext.NewLocale(path.Join("..", "..", "translations"), "en_US")
+	i18n.Initialize(locale)
+
+	apiloader := &api.Apiloader{
+		Translator: &i18n.Translator{
+			Locale: locale,
+		},
+	}
+
+	testData := "./testdata/simple/kubernetes.json"
+
+	containerService, _, err := apiloader.LoadContainerServiceFromFile(testData, true, false, nil)
+	if err != nil {
+		t.Fatalf("Failed to load container service from file: %v", err)
+	}
+	kubeConfig, err := GenerateKubeConfig(containerService.Properties, "westus2")
+	// TODO add actual kubeconfig validation
+	if len(kubeConfig) < 1 {
+		t.Fatalf("Got unexpected kubeconfig payload: %v", kubeConfig)
+	}
+	if err != nil {
+		t.Fatalf("Failed to call GenerateKubeConfig with simple Kubernetes config from file: %v", testData)
+	}
+
+	p := api.Properties{}
+	_, err = GenerateKubeConfig(&p, "westus2")
+	if err == nil {
+		t.Fatalf("Expected an error result from nil Properties child properties")
+	}
+
+	_, err = GenerateKubeConfig(nil, "westus2")
+	if err == nil {
+		t.Fatalf("Expected an error result from nil Properties child properties")
+	}
+}

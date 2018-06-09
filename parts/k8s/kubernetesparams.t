@@ -304,6 +304,13 @@
       },
       "type": "string"
     },
+    "kubernetesNVIDIADevicePluginSpec": {
+      {{PopulateClassicModeDefaultValue "kubernetesNVIDIADevicePluginSpec"}}
+      "metadata": {
+        "description": "The container spec for NVIDIA Device Plugin."
+      },
+      "type": "string"
+    },
     "kubernetesTillerSpec": {
       {{PopulateClassicModeDefaultValue "kubernetesTillerSpec"}}
       "metadata": {
@@ -346,45 +353,17 @@
       },
       "type": "string"
     },
+    "kubernetesACIConnectorEnabled": {
+      "defaultValue": false,
+      "metadata": {
+        "description": "ACI Connector Status"
+      },
+      "type": "bool"
+    },
     "kubernetesACIConnectorSpec": {
       {{PopulateClassicModeDefaultValue "kubernetesACIConnectorSpec"}}
       "metadata": {
         "description": "The container spec for ACI Connector."
-      },
-      "type": "string"
-    },
-    "kubernetesACIConnectorClientId": {
-      {{PopulateClassicModeDefaultValue "kubernetesACIConnectorClientId"}}
-      "metadata": {
-        "description": "Client id for ACI Connector."
-      },
-      "type": "string"
-    },
-    "kubernetesACIConnectorClientKey": {
-      {{PopulateClassicModeDefaultValue "kubernetesACIConnectorClientKey"}}
-      "metadata": {
-        "description": "Client key for ACI Connector."
-      },
-      "type": "string"
-    },
-    "kubernetesACIConnectorTenantId": {
-      {{PopulateClassicModeDefaultValue "kubernetesACIConnectorTenantId"}}
-      "metadata": {
-        "description": "Tenant id for ACI Connector."
-      },
-      "type": "string"
-    },
-    "kubernetesACIConnectorSubscriptionId": {
-      {{PopulateClassicModeDefaultValue "kubernetesACIConnectorSubscriptionId"}}
-      "metadata": {
-        "description": "Subscription id for ACI Connector."
-      },
-      "type": "string"
-    },
-    "kubernetesACIConnectorResourceGroup": {
-      {{PopulateClassicModeDefaultValue "kubernetesACIConnectorResourceGroup"}}
-      "metadata": {
-        "description": "Resource group for ACI Connector."
       },
       "type": "string"
     },
@@ -441,6 +420,69 @@
       {{PopulateClassicModeDefaultValue "kubernetesACIConnectorMemoryLimit"}}
       "metadata": {
         "description": "ACI Connector Memory Limit"
+      },
+      "type": "string"
+    },
+    "kubernetesClusterAutoscalerSpec": {
+      {{PopulateClassicModeDefaultValue "kubernetesClusterAutoscalerSpec"}}
+      "metadata": {
+        "description": "The container spec for the cluster autoscaler."
+      },
+      "type": "string"
+    },
+    "kubernetesClusterAutoscalerCPULimit": {
+      {{PopulateClassicModeDefaultValue "kubernetesClusterAutoscalerCPULimit"}}
+      "metadata": {
+        "description": "Cluster autoscaler cpu limit"
+      },
+      "type": "string"
+    },
+    "kubernetesClusterAutoscalerMemoryLimit": {
+      {{PopulateClassicModeDefaultValue "kubernetesClusterAutoscalerMemoryLimit"}}
+      "metadata": {
+        "description": "Cluster autoscaler memory limit"
+      },
+      "type": "string"
+    },
+    "kubernetesClusterAutoscalerCPURequests": {
+      {{PopulateClassicModeDefaultValue "kubernetesClusterAutoscalerCPURequests"}}
+      "metadata": {
+        "description": "Cluster autoscaler cpu requests"
+      },
+      "type": "string"
+    },
+    "kubernetesClusterAutoscalerMemoryRequests": {
+      {{PopulateClassicModeDefaultValue "kubernetesClusterAutoscalerMemoryRequests"}}
+      "metadata": {
+        "description": "Cluster autoscaler memory requests"
+      },
+      "type": "string"
+    },
+    "kubernetesClusterAutoscalerMinNodes": {
+      {{PopulateClassicModeDefaultValue "kubernetesClusterAutoscalerMinNodes"}}
+      "metadata": {
+        "description": "Cluster autoscaler min nodes"
+      },
+      "type": "string"
+    },
+    "kubernetesClusterAutoscalerMaxNodes": {
+      {{PopulateClassicModeDefaultValue "kubernetesClusterAutoscalerMaxNodes"}}
+      "metadata": {
+        "description": "Cluster autoscaler max nodes"
+      },
+      "type": "string"
+    },
+    "kubernetesClusterAutoscalerEnabled": {
+      "defaultValue": false,
+      "metadata": {
+        "description": "Cluster autoscaler status"
+      },
+      "type": "bool"
+    },
+    "kubernetesClusterAutoscalerUseManagedIdentity": {
+      {{PopulateClassicModeDefaultValue "kubernetesClusterAutoscalerUseManagedIdentity"}}
+      "metadata": {
+        "description": "Managed identity for the cluster autoscaler addon"
       },
       "type": "string"
     },
@@ -583,37 +625,39 @@
     "networkPolicy": {
       "defaultValue": "{{.OrchestratorProfile.KubernetesConfig.NetworkPolicy}}",
       "metadata": {
-        "description": "The network policy enforcement to use (calico|cilium|flannel); 'none' and 'azure' here for backwards compatibility"
+        "description": "The network policy enforcement to use (calico|cilium); 'none' and 'azure' here for backwards compatibility"
       },
       "allowedValues": [
         "",
         "none",
         "azure",
         "calico",
-        "cilium",
-        "flannel"
+        "cilium"
       ],
       "type": "string"
     },
     "networkPlugin": {
       "defaultValue": "{{.OrchestratorProfile.KubernetesConfig.NetworkPlugin}}",
       "metadata": {
-        "description": "The network plugin to use for Kubernetes (kubenet|azure)"
+        "description": "The network plugin to use for Kubernetes (kubenet|azure|flannel|cilium)"
       },
       "allowedValues": [
         "kubenet",
-        "azure"
+        "azure",
+        "flannel",
+        "cilium"
       ],
       "type": "string"
     },
     "containerRuntime": {
       "defaultValue": "{{.OrchestratorProfile.KubernetesConfig.ContainerRuntime}}",
       "metadata": {
-        "description": "The container runtime to use (docker|clear-containers)"
+        "description": "The container runtime to use (docker|clear-containers|containerd)"
       },
       "allowedValues": [
         "docker",
-        "clear-containers"
+        "clear-containers",
+        "containerd"
       ],
       "type": "string"
     },
@@ -656,6 +700,69 @@
         "description": "Low Threshold for Image Garbage collection on each node."
       },
       "type": "int"
+    },
+    "omsAgentVersion": {
+      "defaultValue": "",
+      "metadata": {
+        "description": "OMS agent version for Container Monitoring."
+      },
+      "type": "string"
+    },
+    "omsAgentDockerProviderVersion": {
+      "defaultValue": "",
+      "metadata": {
+        "description": "Docker provider version for Container Monitoring."
+      },
+      "type": "string"
+    },
+    "omsAgentImage": {
+      "defaultValue": "",
+      "metadata": {
+        "description": "OMS agent image for Container Monitoring."
+      },
+      "type": "string"
+    },
+    "omsAgentWorkspaceGuid": {
+      "defaultValue": "",
+      "metadata": {
+        "description": "OMS workspace guid"
+      },
+      "type": "string"
+    },
+    "omsAgentWorkspaceKey": {
+      "defaultValue": "",
+      "metadata": {
+        "description": "OMS workspace key"
+      },
+      "type": "string"
+    },
+    "kubernetesOMSAgentCPURequests": {
+      "defaultValue": "",
+      "metadata": {
+        "description": "OMS Agent CPU requests resource limit"
+      },
+      "type": "string"
+    },
+    "kubernetesOMSAgentMemoryRequests": {
+      "defaultValue": "",
+      "metadata": {
+        "description": "OMS Agent memory requests resource limit"
+      },
+      "type": "string"
+    },
+    "kubernetesOMSAgentCPULimit": {
+      "defaultValue": "",
+      "metadata": {
+        "description": "OMS Agent CPU limit resource limit"
+      },
+      "type": "string"
+    },
+    "kubernetesOMSAgentMemoryLimit": {
+      "defaultValue": "",
+      "metadata": {
+        "description": "OMS Agent memory limit resource limit"
+      },
+      "type": "string"
     },
 {{ if not UseManagedIdentity }}
     "servicePrincipalClientId": {
@@ -706,9 +813,9 @@
       },
       "type": "string"
     },
-    "etcdEncryptionKey": { 
+    "etcdEncryptionKey": {
       "metadata": {
-        "description": "Encryption at rest key for etcd" 
+        "description": "Encryption at rest key for etcd"
       },
       "type": "string"
     }
@@ -752,6 +859,39 @@
       "type": "string"
     }
 {{end}}
+{{if HasCustomSearchDomain}}
+    ,"searchDomainName": {
+      "defaultValue": "",
+      "metadata": {
+        "description": "Custom Search Domain name."
+      },
+      "type": "string"
+    },
+    "searchDomainRealmUser": {
+      "defaultValue": "",
+      "metadata": {
+        "description": "Windows server AD user name to join the Linux Machines with active directory and be able to change dns registries."
+      },
+      "type": "string"
+    },
+    "searchDomainRealmPassword": {
+      "defaultValue": "",
+      "metadata": {
+        "description": "Windows server AD user password to join the Linux Machines with active directory and be able to change dns registries."
+      },
+      "type": "securestring"
+    }
+{{end}}
+{{if HasCustomNodesDNS}}
+    ,"dnsServer": {
+      "defaultValue": "",
+      "metadata": {
+        "description": "DNS Server IP"
+      },
+      "type": "string"
+    }
+{{end}}
+
 {{if EnableEncryptionWithExternalKms}}
    ,
    {{if not UseManagedIdentity}}

@@ -252,7 +252,7 @@ func convertV20170131Properties(v20170131 *v20170131.Properties, api *Properties
 	api.ProvisioningState = ProvisioningState(v20170131.ProvisioningState)
 	if v20170131.OrchestratorProfile != nil {
 		api.OrchestratorProfile = &OrchestratorProfile{}
-		convertV20170131OrchestratorProfile(v20170131.OrchestratorProfile, api.OrchestratorProfile)
+		convertV20170131OrchestratorProfile(v20170131.OrchestratorProfile, api.OrchestratorProfile, v20170131.HasWindows())
 	}
 	if v20170131.MasterProfile != nil {
 		api.MasterProfile = &MasterProfile{}
@@ -302,9 +302,10 @@ func convertV20170131Properties(v20170131 *v20170131.Properties, api *Properties
 
 func convertV20170701Properties(v20170701 *v20170701.Properties, api *Properties) {
 	api.ProvisioningState = ProvisioningState(v20170701.ProvisioningState)
+
 	if v20170701.OrchestratorProfile != nil {
 		api.OrchestratorProfile = &OrchestratorProfile{}
-		convertV20170701OrchestratorProfile(v20170701.OrchestratorProfile, api.OrchestratorProfile)
+		convertV20170701OrchestratorProfile(v20170701.OrchestratorProfile, api.OrchestratorProfile, v20170701.HasWindows())
 	}
 	if v20170701.MasterProfile != nil {
 		api.MasterProfile = &MasterProfile{}
@@ -478,6 +479,17 @@ func convertVLabsLinuxProfile(vlabs *vlabs.LinuxProfile, api *LinuxProfile) {
 		api.Secrets = append(api.Secrets, *secret)
 	}
 	api.ScriptRootURL = vlabs.ScriptRootURL
+	if vlabs.CustomSearchDomain != nil {
+		api.CustomSearchDomain = &CustomSearchDomain{}
+		api.CustomSearchDomain.Name = vlabs.CustomSearchDomain.Name
+		api.CustomSearchDomain.RealmUser = vlabs.CustomSearchDomain.RealmUser
+		api.CustomSearchDomain.RealmPassword = vlabs.CustomSearchDomain.RealmPassword
+	}
+
+	if vlabs.CustomNodesDNS != nil {
+		api.CustomNodesDNS = &CustomNodesDNS{}
+		api.CustomNodesDNS.DNSServer = vlabs.CustomNodesDNS.DNSServer
+	}
 }
 
 func convertV20160930WindowsProfile(v20160930 *v20160930.WindowsProfile, api *WindowsProfile) {
@@ -521,27 +533,27 @@ func convertV20160930OrchestratorProfile(v20160930 *v20160930.OrchestratorProfil
 	if api.OrchestratorType == Kubernetes {
 		api.OrchestratorVersion = "1.6.9"
 	} else if api.OrchestratorType == DCOS {
-		api.OrchestratorVersion = DCOSVersion1Dot9Dot0
+		api.OrchestratorVersion = common.DCOSVersion1Dot9Dot0
 	}
 }
 
 func convertV20160330OrchestratorProfile(v20160330 *v20160330.OrchestratorProfile, api *OrchestratorProfile) {
 	api.OrchestratorType = v20160330.OrchestratorType
 	if api.OrchestratorType == DCOS {
-		api.OrchestratorVersion = DCOSVersion1Dot9Dot0
+		api.OrchestratorVersion = common.DCOSVersion1Dot9Dot0
 	}
 }
 
-func convertV20170131OrchestratorProfile(v20170131 *v20170131.OrchestratorProfile, api *OrchestratorProfile) {
+func convertV20170131OrchestratorProfile(v20170131 *v20170131.OrchestratorProfile, api *OrchestratorProfile, hasWindows bool) {
 	api.OrchestratorType = v20170131.OrchestratorType
 	if api.OrchestratorType == Kubernetes {
-		api.OrchestratorVersion = common.GetDefaultKubernetesVersion()
+		api.OrchestratorVersion = common.GetSupportedKubernetesVersion("", hasWindows)
 	} else if api.OrchestratorType == DCOS {
-		api.OrchestratorVersion = DCOSVersion1Dot9Dot0
+		api.OrchestratorVersion = common.DCOSVersion1Dot9Dot0
 	}
 }
 
-func convertV20170701OrchestratorProfile(v20170701cs *v20170701.OrchestratorProfile, api *OrchestratorProfile) {
+func convertV20170701OrchestratorProfile(v20170701cs *v20170701.OrchestratorProfile, api *OrchestratorProfile, hasWindows bool) {
 	if v20170701cs.OrchestratorType == v20170701.DockerCE {
 		api.OrchestratorType = SwarmMode
 	} else {
@@ -550,13 +562,13 @@ func convertV20170701OrchestratorProfile(v20170701cs *v20170701.OrchestratorProf
 
 	switch api.OrchestratorType {
 	case Kubernetes:
-		api.OrchestratorVersion = common.GetSupportedKubernetesVersion(v20170701cs.OrchestratorVersion)
+		api.OrchestratorVersion = common.GetSupportedKubernetesVersion(v20170701cs.OrchestratorVersion, hasWindows)
 	case DCOS:
 		switch v20170701cs.OrchestratorVersion {
-		case DCOSVersion1Dot10Dot0, DCOSVersion1Dot9Dot0, DCOSVersion1Dot8Dot8:
+		case common.DCOSVersion1Dot10Dot0, common.DCOSVersion1Dot9Dot0, common.DCOSVersion1Dot8Dot8:
 			api.OrchestratorVersion = v20170701cs.OrchestratorVersion
 		default:
-			api.OrchestratorVersion = DCOSVersion1Dot9Dot0
+			api.OrchestratorVersion = common.DCOSVersion1Dot9Dot0
 		}
 	default:
 		break
@@ -578,11 +590,15 @@ func convertVLabsOrchestratorProfile(vp *vlabs.Properties, api *OrchestratorProf
 		if api.OpenShiftConfig != nil && api.OpenShiftConfig.KubernetesConfig != nil {
 			api.KubernetesConfig = api.OpenShiftConfig.KubernetesConfig
 		}
-		api.OrchestratorVersion = common.RationalizeReleaseAndVersion(
-			vlabscs.OrchestratorType,
-			vlabscs.OrchestratorRelease,
-			vlabscs.OrchestratorVersion,
-			false)
+		if vlabscs.OrchestratorVersion != common.OpenShiftVersionUnstable {
+			api.OrchestratorVersion = common.RationalizeReleaseAndVersion(
+				vlabscs.OrchestratorType,
+				vlabscs.OrchestratorRelease,
+				vlabscs.OrchestratorVersion,
+				false)
+		} else {
+			api.OrchestratorVersion = vlabscs.OrchestratorVersion
+		}
 	case Kubernetes:
 		if vlabscs.KubernetesConfig != nil {
 			api.KubernetesConfig = &KubernetesConfig{}
@@ -628,12 +644,11 @@ func convertVLabsDcosConfig(vlabs *vlabs.DcosConfig, api *DcosConfig) {
 
 	if vlabs.BootstrapProfile != nil {
 		api.BootstrapProfile = &BootstrapProfile{
-			Count:                    vlabs.BootstrapProfile.Count,
-			VMSize:                   vlabs.BootstrapProfile.VMSize,
-			OSDiskSizeGB:             vlabs.BootstrapProfile.OSDiskSizeGB,
-			OAuthEnabled:             vlabs.BootstrapProfile.OAuthEnabled,
-			FirstConsecutiveStaticIP: vlabs.BootstrapProfile.FirstConsecutiveStaticIP,
-			Subnet: vlabs.BootstrapProfile.Subnet,
+			VMSize:       vlabs.BootstrapProfile.VMSize,
+			OSDiskSizeGB: vlabs.BootstrapProfile.OSDiskSizeGB,
+			OAuthEnabled: vlabs.BootstrapProfile.OAuthEnabled,
+			StaticIP:     vlabs.BootstrapProfile.StaticIP,
+			Subnet:       vlabs.BootstrapProfile.Subnet,
 		}
 	}
 }
@@ -649,6 +664,7 @@ func convertVLabsOpenShiftConfig(vlabs *vlabs.OpenShiftConfig, api *OpenShiftCon
 	api.ClusterUsername = vlabs.ClusterUsername
 	api.ClusterPassword = vlabs.ClusterPassword
 	api.EnableAADAuthentication = vlabs.EnableAADAuthentication
+	api.ConfigBundles = vlabs.ConfigBundles
 }
 
 func convertVLabsKubernetesConfig(vlabs *vlabs.KubernetesConfig, api *KubernetesConfig) {
@@ -745,6 +761,18 @@ func convertAddonsToAPI(v *vlabs.KubernetesConfig, a *KubernetesConfig) {
 			for key, val := range v.Addons[i].Config {
 				a.Addons[i].Config[key] = val
 			}
+		}
+	}
+}
+
+func convertCustomFilesToAPI(v *vlabs.MasterProfile, a *MasterProfile) {
+	if v.CustomFiles != nil {
+		a.CustomFiles = &[]CustomFile{}
+		for i := range *v.CustomFiles {
+			*a.CustomFiles = append(*a.CustomFiles, CustomFile{
+				Dest:   (*v.CustomFiles)[i].Dest,
+				Source: (*v.CustomFiles)[i].Source,
+			})
 		}
 	}
 }
@@ -891,6 +919,8 @@ func convertVLabsMasterProfile(vlabs *vlabs.MasterProfile, api *MasterProfile) {
 		api.ImageRef.Name = vlabs.ImageRef.Name
 		api.ImageRef.ResourceGroup = vlabs.ImageRef.ResourceGroup
 	}
+
+	convertCustomFilesToAPI(vlabs, api)
 }
 
 func convertV20160930AgentPoolProfile(v20160930 *v20160930.AgentPoolProfile, availabilityProfile string, api *AgentPoolProfile) {
@@ -963,6 +993,8 @@ func convertVLabsAgentPoolProfile(vlabs *vlabs.AgentPoolProfile, api *AgentPoolP
 	api.Ports = []int{}
 	api.Ports = append(api.Ports, vlabs.Ports...)
 	api.AvailabilityProfile = vlabs.AvailabilityProfile
+	api.ScaleSetPriority = vlabs.ScaleSetPriority
+	api.ScaleSetEvictionPolicy = vlabs.ScaleSetEvictionPolicy
 	api.StorageProfile = vlabs.StorageProfile
 	api.DiskSizesGB = []int{}
 	api.DiskSizesGB = append(api.DiskSizesGB, vlabs.DiskSizesGB...)
@@ -970,6 +1002,7 @@ func convertVLabsAgentPoolProfile(vlabs *vlabs.AgentPoolProfile, api *AgentPoolP
 	api.Subnet = vlabs.GetSubnet()
 	api.IPAddressCount = vlabs.IPAddressCount
 	api.FQDN = vlabs.FQDN
+	api.AcceleratedNetworkingEnabled = vlabs.AcceleratedNetworkingEnabled
 
 	api.CustomNodeLabels = map[string]string{}
 	for k, v := range vlabs.CustomNodeLabels {
@@ -1138,6 +1171,7 @@ func convertVLabsAADProfile(vlabs *vlabs.AADProfile, api *AADProfile) {
 	api.ServerAppID = vlabs.ServerAppID
 	api.TenantID = vlabs.TenantID
 	api.AdminGroupID = vlabs.AdminGroupID
+	api.Authenticator = OIDC
 }
 
 func addDCOSPublicAgentPool(api *Properties) {

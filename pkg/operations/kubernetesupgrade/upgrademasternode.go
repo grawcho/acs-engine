@@ -5,8 +5,6 @@ import (
 	"math/rand"
 	"time"
 
-	"k8s.io/client-go/pkg/api/v1/node"
-
 	"github.com/Azure/acs-engine/pkg/api"
 	"github.com/Azure/acs-engine/pkg/armhelpers"
 	"github.com/Azure/acs-engine/pkg/i18n"
@@ -24,6 +22,7 @@ type UpgradeMasterNode struct {
 	TemplateMap             map[string]interface{}
 	ParametersMap           map[string]interface{}
 	UpgradeContainerService *api.ContainerService
+	SubscriptionID          string
 	ResourceGroup           string
 	Client                  armhelpers.ACSEngineClient
 	kubeConfig              string
@@ -35,7 +34,7 @@ type UpgradeMasterNode struct {
 // the node.
 // The 'drain' flag is not used for deleting master nodes.
 func (kmn *UpgradeMasterNode) DeleteNode(vmName *string, drain bool) error {
-	return operations.CleanDeleteVirtualMachine(kmn.Client, kmn.logger, kmn.ResourceGroup, *vmName)
+	return operations.CleanDeleteVirtualMachine(kmn.Client, kmn.logger, kmn.SubscriptionID, kmn.ResourceGroup, *vmName)
 }
 
 // CreateNode creates a new master/agent node with the targeted version of Kubernetes
@@ -92,7 +91,7 @@ func (kmn *UpgradeMasterNode) Validate(vmName *string) error {
 			if err != nil {
 				kmn.logger.Infof("Master VM: %s status error: %v\n", *vmName, err)
 				time.Sleep(time.Second * 5)
-			} else if node.IsNodeReady(masterNode) {
+			} else if isNodeReady(masterNode) {
 				kmn.logger.Infof("Master VM: %s is ready", *vmName)
 				ch <- struct{}{}
 			} else {

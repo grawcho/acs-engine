@@ -11,6 +11,9 @@ var ErrorInvalidNetworkPlugin = fmt.Errorf("Network plugin should be either Azur
 // ErrorInvalidServiceCidr error
 var ErrorInvalidServiceCidr = fmt.Errorf("ServiceCidr is not a valid CIDR")
 
+// ErrorServiceCidrTooLarge error
+var ErrorServiceCidrTooLarge = fmt.Errorf("ServiceCidr is too large")
+
 // ErrorInvalidDNSServiceIP error
 var ErrorInvalidDNSServiceIP = fmt.Errorf("DNSServiceIP is not a valid IP address")
 
@@ -40,3 +43,18 @@ var ErrorResourceGroupNotMatch = fmt.Errorf("ResourceGroup for subnet does not m
 
 // ErrorVnetNotMatch error
 var ErrorVnetNotMatch = fmt.Errorf("Vnet for subnet does not match with other subnet")
+
+// ErrorRBACNotEnabledForAAD error
+var ErrorRBACNotEnabledForAAD = fmt.Errorf("RBAC must be enabled for AAD to be enabled")
+
+// ErrorAADServerAppIDNotSet error
+var ErrorAADServerAppIDNotSet = fmt.Errorf("ServerAppID in AADProfile cannot be empty string")
+
+// ErrorAADServerAppSecretNotSet error
+var ErrorAADServerAppSecretNotSet = fmt.Errorf("ServerAppSecret in AADProfile cannot be empty string")
+
+// ErrorAADClientAppIDNotSet error
+var ErrorAADClientAppIDNotSet = fmt.Errorf("ClientAppID in AADProfile cannot be empty string")
+
+// ErrorAADTenantIDNotSet error
+var ErrorAADTenantIDNotSet = fmt.Errorf("TenantID in AADProfile cannot be empty string")

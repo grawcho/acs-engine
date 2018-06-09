@@ -74,3 +74,93 @@ Read more:
 
 - Effective Go [introduces formatting](https://golang.org/doc/effective_go.html#formatting).
 - The Go Wiki has a great article on [formatting](https://github.com/golang/go/wiki/CodeReviewComments).
+
+### Unit Tests
+
+Unit tests may be run locally via `make test`.
+
+### End-to-end Tests
+
+End-to-end tests for the DCOS, Kubernetes and OpenShift orchestrators may be run
+via `make test-{dcos,kubernetes,openshift}`.  The test process can optionally
+deploy and tear down a cluster as part of the test (this is enabled by default).
+You'll need access to an Azure subscription, as well as at least the following
+environment variables to be set:
+
+* `CLIENT_ID`: Azure client ID
+* `CLIENT_SECRET`: Azure client secret
+* `SUBSCRIPTION_ID`: Azure subscription UUID
+* `TENANT_ID`: Azure tenant UUID
+
+#### OpenShift
+
+To test the OpenShift orchestrator, you'll need to enable programmatic
+deployment of the underlying image.  In the Azure console, find the image under
+Home > New > Marketplace > Everything.  Click "Want to deploy programmatically?
+Get started".  Enable your subscription and click Save.
+
+You'll also need to have `oc` and `kubectl` binaries locally in your PATH which
+correspond to the cluster version being tested.  Download the `oc` binary, then
+make a symlink or copy of it and name the new file `kubectl`.
+
+To have the test process deploy and tear down a cluster, set the following
+environment variables:
+
+* `CLUSTER_DEFINITION=examples/openshift.json`
+* `DISTRO=openshift39_centos`
+* `LOCATION=eastus`
+
+Alternatively, to run tests on a pre-deployed OpenShift cluster, set the
+following environment variables:
+
+* `CLEANUP_ON_EXIT=false`
+* `LOCATION=eastus`
+* `NAME=`: dnsPrefix of the pre-deployed cluster
+
+Finally, you'll need to make sure that the apimodel.json corresponding to the
+pre-deployed cluster is available at `_output/$NAME.json`.  If you previously
+used `acs-engine deploy` directly to deploy the cluster, you will need to run
+`cp _output/$NAME/apimodel.json _output/$NAME.json`.
+
+### Debugging
+
+For acs-engine code debugging you can use [Delve](https://github.com/derekparker/delve) debugger.
+
+#### CLI
+
+Run command:
+```
+dlv debug github.com/Azure/acs-engine -- generate ~/Documents/azure/openshift.json
+```
+
+Test individual package and individual test:
+```
+dlv test github.com/Azure/acs-engine/pkg/acsengine
+dlv test github.com/Azure/acs-engine/pkg/acsengine -- -test.run ^TestNetworkPolicyDefaults$
+```
+
+#### Visual Code Studio
+
+More on VSC integration with delve can be found [here](https://github.com/Microsoft/vscode-go/wiki/Debugging-Go-code-using-VS-Code)
+
+If delve is installed and configured, you can use native VS functionality to debug code or individual tests (`debug test`)
+
+Example launch.json file:
+
+```json
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Launch",
+      "type": "go",
+      "request": "launch",
+      "mode": "debug",
+      "program": "${workspaceRoot}",
+      "env": {},
+      "args": ["generate", "${workspaceRoot}/examples/openshift.json"],
+      "showLog": true
+    }
+  ]
+}
+```
