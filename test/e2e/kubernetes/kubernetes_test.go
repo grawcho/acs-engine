@@ -351,6 +351,85 @@ var _ = Describe("Azure Container Cluster using the Kubernetes Orchestrator", fu
 			}
 		})
 
+		It("should have cluster-omsagent daemonset running", func() {
+			if hasContainerMonitoring, clusterContainerMonitoringAddon := eng.HasAddon("container-monitoring"); hasContainerMonitoring {
+				running, err := pod.WaitOnReady("omsagent-", "kube-system", 3, 30*time.Second, cfg.Timeout)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(running).To(Equal(true))
+				By("Ensuring that the correct resources have been applied")
+				pods, err := pod.GetAllByPrefix("omsagent-", "kube-system")
+				Expect(err).NotTo(HaveOccurred())
+				for i, c := range clusterContainerMonitoringAddon.Containers {
+					err := pods[0].Spec.Containers[i].ValidateResources(c)
+					Expect(err).NotTo(HaveOccurred())
+				}
+			} else {
+				Skip("container monitoring disabled for this cluster, will not test")
+			}
+		})
+
+		It("should have cluster-omsagent replicaset running", func() {
+			if hasContainerMonitoring, clusterContainerMonitoringAddon := eng.HasAddon("container-monitoring"); hasContainerMonitoring {
+				running, err := pod.WaitOnReady("omsagent-rs", "kube-system", 3, 30*time.Second, cfg.Timeout)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(running).To(Equal(true))
+				By("Ensuring that the correct resources have been applied")
+				pods, err := pod.GetAllByPrefix("omsagent-rs", "kube-system")
+				Expect(err).NotTo(HaveOccurred())
+				for i, c := range clusterContainerMonitoringAddon.Containers {
+					err := pods[0].Spec.Containers[i].ValidateResources(c)
+					Expect(err).NotTo(HaveOccurred())
+				}
+			} else {
+				Skip("container monitoring disabled for this cluster, will not test")
+			}
+		})
+
+		It("should be successfully running kubepodinventory plugin - ContainerMonitoring", func() {
+			if hasContainerMonitoring, _ := eng.HasAddon("container-monitoring"); hasContainerMonitoring {
+				running, err := pod.WaitOnReady("omsagent-rs", "kube-system", 3, 30*time.Second, cfg.Timeout)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(running).To(Equal(true))
+				By("Ensuring that the kubepodinventory plugin is writing data successfully")
+				pods, err := pod.GetAllByPrefix("omsagent-rs", "kube-system")
+				Expect(err).NotTo(HaveOccurred())
+				_, err = pods[0].Exec("grep", "\"in_kube_podinventory::emit-stream : Success\"", "/var/opt/microsoft/omsagent/log/omsagent.log")
+				Expect(err).NotTo(HaveOccurred())
+			} else {
+				Skip("container monitoring disabled for this cluster, will not test")
+			}
+		})
+
+		It("should be successfully running kubenodeinventory plugin - ContainerMonitoring", func() {
+			if hasContainerMonitoring, _ := eng.HasAddon("container-monitoring"); hasContainerMonitoring {
+				running, err := pod.WaitOnReady("omsagent-rs", "kube-system", 3, 30*time.Second, cfg.Timeout)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(running).To(Equal(true))
+				By("Ensuring that the kubenodeinventory plugin is writing data successfully")
+				pods, err := pod.GetAllByPrefix("omsagent-rs", "kube-system")
+				Expect(err).NotTo(HaveOccurred())
+				_, err = pods[0].Exec("grep", "\"in_kube_nodeinventory::emit-stream : Success\"", "/var/opt/microsoft/omsagent/log/omsagent.log")
+				Expect(err).NotTo(HaveOccurred())
+			} else {
+				Skip("container monitoring disabled for this cluster, will not test")
+			}
+		})
+
+		It("should be successfully running cadvisor_perf plugin - ContainerMonitoring", func() {
+			if hasContainerMonitoring, _ := eng.HasAddon("container-monitoring"); hasContainerMonitoring {
+				running, err := pod.WaitOnReady("omsagent-", "kube-system", 3, 30*time.Second, cfg.Timeout)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(running).To(Equal(true))
+				By("Ensuring that the cadvisor_perf plugin is writing data successfully")
+				pods, err := pod.GetAllByPrefix("omsagent-", "kube-system")
+				Expect(err).NotTo(HaveOccurred())
+				_, err = pods[0].Exec("grep", "\"in_cadvisor_perf::emit-stream : Success\"", "/var/opt/microsoft/omsagent/log/omsagent.log")
+				Expect(err).NotTo(HaveOccurred())
+			} else {
+				Skip("container monitoring disabled for this cluster, will not test")
+			}
+		})
+
 		It("should have rescheduler running", func() {
 			if hasRescheduler, reschedulerAddon := eng.HasAddon("rescheduler"); hasRescheduler {
 				running, err := pod.WaitOnReady("rescheduler", "kube-system", 3, 30*time.Second, cfg.Timeout)
@@ -635,12 +714,11 @@ var _ = Describe("Azure Container Cluster using the Kubernetes Orchestrator", fu
 	})
 
 	Describe("with a windows agent pool", func() {
-		// TODO stabilize this test
-		/*It("should be able to deploy an iis webserver", func() {
+		It("should be able to deploy an iis webserver", func() {
 			if eng.HasWindowsAgents() {
 				r := rand.New(rand.NewSource(time.Now().UnixNano()))
 				deploymentName := fmt.Sprintf("iis-%s-%v", cfg.Name, r.Intn(99999))
-				iisDeploy, err := deployment.CreateWindowsDeploy("microsoft/iis:windowsservercore-1709", deploymentName, "default", 80, -1)
+				iisDeploy, err := deployment.CreateWindowsDeploy("microsoft/iis:windowsservercore-1803", deploymentName, "default", 80, -1)
 				Expect(err).NotTo(HaveOccurred())
 
 				running, err := pod.WaitOnReady(deploymentName, "default", 3, 30*time.Second, cfg.Timeout)
@@ -659,11 +737,12 @@ var _ = Describe("Azure Container Cluster using the Kubernetes Orchestrator", fu
 				iisPods, err := iisDeploy.Pods()
 				Expect(err).NotTo(HaveOccurred())
 				Expect(len(iisPods)).ToNot(BeZero())
-				for _, iisPod := range iisPods {
-					pass, err := iisPod.CheckWindowsOutboundConnection(10*time.Second, cfg.Timeout)
-					Expect(err).NotTo(HaveOccurred())
-					Expect(pass).To(BeTrue())
-				}
+				// BUG - https://github.com/Azure/acs-engine/issues/3143
+				// for _, iisPod := range iisPods {
+				// 	pass, err := iisPod.CheckWindowsOutboundConnection(10*time.Second, cfg.Timeout)
+				// 	Expect(err).NotTo(HaveOccurred())
+				// 	Expect(pass).To(BeTrue())
+				// }
 
 				err = iisDeploy.Delete()
 				Expect(err).NotTo(HaveOccurred())
@@ -672,46 +751,46 @@ var _ = Describe("Azure Container Cluster using the Kubernetes Orchestrator", fu
 			} else {
 				Skip("No windows agent was provisioned for this Cluster Definition")
 			}
-		})*/
+		})
 
-		// TODO stabilize this test
-		/*It("should be able to reach hostport in an iis webserver", func() {
-			if eng.HasWindowsAgents() {
-				r := rand.New(rand.NewSource(time.Now().UnixNano()))
-				hostport := 8123
-				deploymentName := fmt.Sprintf("iis-%s-%v", cfg.Name, r.Intn(99999))
-				iisDeploy, err := deployment.CreateWindowsDeploy("microsoft/iis:windowsservercore-1709", deploymentName, "default", 80, hostport)
-				Expect(err).NotTo(HaveOccurred())
+		// Windows Bug 16598869
+		/*
+			It("should be able to reach hostport in an iis webserver", func() {
+				if eng.HasWindowsAgents() {
+					r := rand.New(rand.NewSource(time.Now().UnixNano()))
+					hostport := 8123
+					deploymentName := fmt.Sprintf("iis-%s-%v", cfg.Name, r.Intn(99999))
+					iisDeploy, err := deployment.CreateWindowsDeploy("microsoft/iis:windowsservercore-1803", deploymentName, "default", 80, hostport)
+					Expect(err).NotTo(HaveOccurred())
 
-				running, err := pod.WaitOnReady(deploymentName, "default", 3, 30*time.Second, cfg.Timeout)
-				Expect(err).NotTo(HaveOccurred())
-				Expect(running).To(Equal(true))
+					running, err := pod.WaitOnReady(deploymentName, "default", 3, 30*time.Second, cfg.Timeout)
+					Expect(err).NotTo(HaveOccurred())
+					Expect(running).To(Equal(true))
 
-				iisPods, err := iisDeploy.Pods()
-				Expect(err).NotTo(HaveOccurred())
-				Expect(len(iisPods)).ToNot(BeZero())
+					iisPods, err := iisDeploy.Pods()
+					Expect(err).NotTo(HaveOccurred())
+					Expect(len(iisPods)).ToNot(BeZero())
 
-				kubeConfig, err := GetConfig()
-				Expect(err).NotTo(HaveOccurred())
-				master := fmt.Sprintf("azureuser@%s", kubeConfig.GetServerName())
-				sshKeyPath := cfg.GetSSHKeyPath()
+					kubeConfig, err := GetConfig()
+					Expect(err).NotTo(HaveOccurred())
+					master := fmt.Sprintf("azureuser@%s", kubeConfig.GetServerName())
+					sshKeyPath := cfg.GetSSHKeyPath()
 
-				for _, iisPod := range iisPods {
-					valid := iisPod.ValidateHostPort("(IIS Windows Server)", 10, 10*time.Second, master, sshKeyPath)
-					Expect(valid).To(BeTrue())
+					for _, iisPod := range iisPods {
+						valid := iisPod.ValidateHostPort("(IIS Windows Server)", 10, 10*time.Second, master, sshKeyPath)
+						Expect(valid).To(BeTrue())
+					}
+
+					err = iisDeploy.Delete()
+					Expect(err).NotTo(HaveOccurred())
+				} else {
+					Skip("No windows agent was provisioned for this Cluster Definition")
 				}
+			})*/
 
-				err = iisDeploy.Delete()
-				Expect(err).NotTo(HaveOccurred())
-			} else {
-				Skip("No windows agent was provisioned for this Cluster Definition")
-			}
-		})*/
-
-		// TODO stabilize this test
 		/*It("should be able to attach azure file", func() {
 			if eng.HasWindowsAgents() {
-				if common.IsKubernetesVersionGe(eng.ClusterDefinition.ContainerService.Properties.OrchestratorProfile.OrchestratorVersion ,"1.8") {
+				if common.IsKubernetesVersionGe(eng.ClusterDefinition.ContainerService.Properties.OrchestratorProfile.OrchestratorVersion, "1.8") {
 					storageclassName := "azurefile" // should be the same as in storageclass-azurefile.yaml
 					sc, err := storageclass.CreateStorageClassFromFile(filepath.Join(WorkloadDir, "storageclass-azurefile.yaml"), storageclassName)
 					Expect(err).NotTo(HaveOccurred())

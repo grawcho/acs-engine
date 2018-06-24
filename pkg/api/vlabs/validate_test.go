@@ -971,7 +971,7 @@ func TestMasterProfileValidate(t *testing.T) {
 			masterProfile: MasterProfile{
 				DNSPrefix: "bad!",
 			},
-			expectedErr: "DNS name 'bad!' is invalid. The DNS name must contain between 3 and 45 characters.  The name can contain only letters, numbers, and hyphens.  The name must start with a letter and must end with a letter or a number (length was 4)",
+			expectedErr: "DNSPrefix 'bad!' is invalid. The DNSPrefix must contain between 3 and 45 characters and can contain only letters, numbers, and hyphens.  It must start with a letter and must end with a letter or a number. (length was 4)",
 		},
 		{
 			masterProfile: MasterProfile{
@@ -999,6 +999,23 @@ func TestMasterProfileValidate(t *testing.T) {
 				Count:     3,
 			},
 			expectedErr: "openshift can only deployed with one master",
+		},
+		{ // test existing vnet: run with only specifying vnetsubnetid
+			orchestratorType: OpenShift,
+			masterProfile: MasterProfile{
+				VnetSubnetID: "testvnetstring",
+				Count:        1,
+			},
+			expectedErr: "when specifying a vnetsubnetid the firstconsecutivestaticip is required",
+		},
+		{ // test existing vnet: run with specifying both vnetsubnetid and firstconsecutivestaticip
+			orchestratorType: OpenShift,
+			masterProfile: MasterProfile{
+				DNSPrefix:                "dummy",
+				VnetSubnetID:             "testvnetstring",
+				FirstConsecutiveStaticIP: "10.0.0.1",
+				Count: 1,
+			},
 		},
 	}
 
