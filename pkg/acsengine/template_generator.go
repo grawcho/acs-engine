@@ -284,6 +284,10 @@ func (t *TemplateGenerator) getTemplateFuncMap(cs *api.ContainerService) templat
 		"UseManagedIdentity": func() bool {
 			return cs.Properties.OrchestratorProfile.KubernetesConfig.UseManagedIdentity
 		},
+		"UseAksExtension": func() bool {
+			cloudSpecConfig := getCloudSpecConfig(cs.Location)
+			return cloudSpecConfig.CloudName == azurePublicCloud
+		},
 		"UseInstanceMetadata": func() bool {
 			return helpers.IsTrueBoolPointer(cs.Properties.OrchestratorProfile.KubernetesConfig.UseInstanceMetadata)
 		},
@@ -874,6 +878,12 @@ func (t *TemplateGenerator) getTemplateFuncMap(cs *api.ContainerService) templat
 						} else {
 							val = cloudSpecConfig.KubernetesSpecConfig.KubernetesImageBase + KubeConfigs[k8sVersion][DefaultClusterAutoscalerAddonName]
 						}
+					}
+				case "kubernetesClusterAutoscalerAzureCloud":
+					if aS > -1 {
+						val = cloudSpecConfig.CloudName
+					} else {
+						val = ""
 					}
 				case "kubernetesClusterAutoscalerCPURequests":
 					if aS > -1 {
