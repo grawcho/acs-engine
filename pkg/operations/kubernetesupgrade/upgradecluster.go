@@ -145,7 +145,8 @@ func (uc *UpgradeCluster) UpgradeCluster(subscriptionID uuid.UUID, kubeConfig, r
 func (uc *UpgradeCluster) getClusterNodeStatus(subscriptionID uuid.UUID, resourceGroup string) error {
 	targetOrchestratorTypeVersion := fmt.Sprintf("%s:%s", uc.DataModel.Properties.OrchestratorProfile.OrchestratorType, uc.DataModel.Properties.OrchestratorProfile.OrchestratorVersion)
 
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), armhelpers.DefaultARMOperationTimeout)
+	defer cancel()
 	for vmScaleSetPage, err := uc.Client.ListVirtualMachineScaleSets(ctx, resourceGroup); vmScaleSetPage.NotDone(); err = vmScaleSetPage.Next() {
 		if err != nil {
 			return err
@@ -252,7 +253,7 @@ func (uc *UpgradeCluster) upgradable(vmOrchestratorTypeAndVersion string) error 
 		OrchestratorType:    api.Kubernetes,
 		OrchestratorVersion: currentVer.String(),
 	}
-	orch, err := api.GetOrchestratorVersionProfile(csOrch)
+	orch, err := api.GetOrchestratorVersionProfile(csOrch, uc.DataModel.Properties.HasWindows())
 	if err != nil {
 		return err
 	}

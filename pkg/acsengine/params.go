@@ -9,7 +9,7 @@ import (
 	"github.com/Azure/acs-engine/pkg/api/common"
 )
 
-func getParameters(cs *api.ContainerService, isClassicMode bool, generatorCode string, acsengineVersion string) (paramsMap, error) {
+func getParameters(cs *api.ContainerService, generatorCode string, acsengineVersion string) (paramsMap, error) {
 	properties := cs.Properties
 	location := cs.Location
 	parametersMap := paramsMap{}
@@ -22,17 +22,18 @@ func getParameters(cs *api.ContainerService, isClassicMode bool, generatorCode s
 	addValue(parametersMap, "location", location)
 
 	// Identify Master distro
-	masterDistro := getMasterDistro(properties.MasterProfile)
-	if properties.MasterProfile != nil && properties.MasterProfile.ImageRef != nil {
-		addValue(parametersMap, "osImageName", properties.MasterProfile.ImageRef.Name)
-		addValue(parametersMap, "osImageResourceGroup", properties.MasterProfile.ImageRef.ResourceGroup)
+	if properties.MasterProfile != nil {
+		addValue(parametersMap, "osImageOffer", cloudSpecConfig.OSImageConfig[properties.MasterProfile.Distro].ImageOffer)
+		addValue(parametersMap, "osImageSKU", cloudSpecConfig.OSImageConfig[properties.MasterProfile.Distro].ImageSku)
+		addValue(parametersMap, "osImagePublisher", cloudSpecConfig.OSImageConfig[properties.MasterProfile.Distro].ImagePublisher)
+		addValue(parametersMap, "osImageVersion", cloudSpecConfig.OSImageConfig[properties.MasterProfile.Distro].ImageVersion)
+		if properties.MasterProfile.ImageRef != nil {
+			addValue(parametersMap, "osImageName", properties.MasterProfile.ImageRef.Name)
+			addValue(parametersMap, "osImageResourceGroup", properties.MasterProfile.ImageRef.ResourceGroup)
+		}
 	}
 	// TODO: Choose the correct image config based on the version
 	// for the openshift orchestrator
-	addValue(parametersMap, "osImageOffer", cloudSpecConfig.OSImageConfig[masterDistro].ImageOffer)
-	addValue(parametersMap, "osImageSKU", cloudSpecConfig.OSImageConfig[masterDistro].ImageSku)
-	addValue(parametersMap, "osImagePublisher", cloudSpecConfig.OSImageConfig[masterDistro].ImagePublisher)
-	addValue(parametersMap, "osImageVersion", cloudSpecConfig.OSImageConfig[masterDistro].ImageVersion)
 
 	addValue(parametersMap, "fqdnEndpointSuffix", cloudSpecConfig.EndpointConfig.ResourceManagerVMDNSSuffix)
 	addValue(parametersMap, "targetEnvironment", getCloudTargetEnv(location))
@@ -64,9 +65,6 @@ func getParameters(cs *api.ContainerService, isClassicMode bool, generatorCode s
 		}
 		addValue(parametersMap, "firstConsecutiveStaticIP", properties.MasterProfile.FirstConsecutiveStaticIP)
 		addValue(parametersMap, "masterVMSize", properties.MasterProfile.VMSize)
-		if isClassicMode {
-			addValue(parametersMap, "masterCount", properties.MasterProfile.Count)
-		}
 	}
 	if properties.HostedMasterProfile != nil {
 		addValue(parametersMap, "masterSubnet", properties.HostedMasterProfile.Subnet)

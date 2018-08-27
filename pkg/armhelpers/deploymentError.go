@@ -58,7 +58,8 @@ func (e *DeploymentValidationError) Error() string {
 
 // DeployTemplateSync deploys the template and returns ArmError
 func DeployTemplateSync(az ACSEngineClient, logger *logrus.Entry, resourceGroupName, deploymentName string, template map[string]interface{}, parameters map[string]interface{}) error {
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), DefaultARMOperationTimeout)
+	defer cancel()
 	deploymentExtended, err := az.DeployTemplate(ctx, resourceGroupName, deploymentName, template, parameters)
 	if err == nil {
 		return nil

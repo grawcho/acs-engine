@@ -53,7 +53,6 @@ type deployCmd struct {
 	forceOverwrite    bool
 	caCertificatePath string
 	caPrivateKeyPath  string
-	classicMode       bool
 	parametersOnly    bool
 	set               []string
 
@@ -302,7 +301,8 @@ func autofillApimodel(dc *deployCmd) error {
 		dc.containerService.Properties.LinuxProfile.SSH.PublicKeys = []api.PublicKey{{KeyData: publicKey}}
 	}
 
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), armhelpers.DefaultARMOperationTimeout)
+	defer cancel()
 	_, err = dc.client.EnsureResourceGroup(ctx, dc.resourceGroup, dc.location, nil)
 	if err != nil {
 		return err
@@ -397,7 +397,7 @@ func (dc *deployCmd) run() error {
 		},
 	}
 
-	templateGenerator, err := acsengine.InitializeTemplateGenerator(ctx, dc.classicMode)
+	templateGenerator, err := acsengine.InitializeTemplateGenerator(ctx)
 	if err != nil {
 		log.Fatalf("failed to initialize template generator: %s", err.Error())
 	}
@@ -439,9 +439,11 @@ func (dc *deployCmd) run() error {
 	}
 
 	deploymentSuffix := dc.random.Int31()
+	cx, cancel := context.WithTimeout(context.Background(), armhelpers.DefaultARMOperationTimeout)
+	defer cancel()
 
 	if res, err := dc.client.DeployTemplate(
-		context.Background(),
+		cx,
 		dc.resourceGroup,
 		fmt.Sprintf("%s-%d", dc.resourceGroup, deploymentSuffix),
 		templateJSON,

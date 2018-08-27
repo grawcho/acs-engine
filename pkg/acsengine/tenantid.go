@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"regexp"
+	"time"
 
 	"github.com/Azure/azure-sdk-for-go/services/resources/mgmt/2016-06-01/subscriptions"
 	"github.com/pkg/errors"
@@ -13,6 +14,7 @@ import (
 // GetTenantID figures out the AAD tenant ID of the subscription by making an
 // unauthenticated request to the Get Subscription Details endpoint and parses
 // the value from WWW-Authenticate header.
+// TODO this should probably to to the armhelpers library
 func GetTenantID(resourceManagerEndpoint string, subscriptionID string) (string, error) {
 	const hdrKey = "WWW-Authenticate"
 	c := subscriptions.NewClientWithBaseURI(resourceManagerEndpoint)
@@ -22,7 +24,9 @@ func GetTenantID(resourceManagerEndpoint string, subscriptionID string) (string,
 	// we expect this request to fail (err != nil), but we are only interested
 	// in headers, so surface the error if the Response is not present (i.e.
 	// network error etc)
-	subs, err := c.Get(context.Background(), subscriptionID)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute*150)
+	defer cancel()
+	subs, err := c.Get(ctx, subscriptionID)
 	if subs.Response.Response == nil {
 		return "", errors.Wrap(err, "Request failed")
 	}

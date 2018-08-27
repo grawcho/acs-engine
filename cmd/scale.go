@@ -38,7 +38,6 @@ type scaleCmd struct {
 	newDesiredAgentCount int
 	location             string
 	agentPoolToScale     string
-	classicMode          bool
 	masterFQDN           string
 
 	// derived
@@ -77,7 +76,6 @@ func newScaleCmd() *cobra.Command {
 	f.StringVarP(&sc.resourceGroupName, "resource-group", "g", "", "the resource group where the cluster is deployed")
 	f.StringVar(&sc.deploymentDirectory, "deployment-dir", "", "the location of the output from `generate`")
 	f.IntVar(&sc.newDesiredAgentCount, "new-node-count", 0, "desired number of nodes")
-	f.BoolVar(&sc.classicMode, "classic-mode", false, "enable classic parameters and outputs")
 	f.StringVar(&sc.agentPoolToScale, "node-pool", "", "node pool to scale")
 	f.StringVar(&sc.masterFQDN, "master-FQDN", "", "FQDN for the master load balancer, Needed to scale down Kubernetes agent pools")
 
@@ -132,7 +130,8 @@ func (sc *scaleCmd) load(cmd *cobra.Command) error {
 		return errors.Wrap(err, "failed to get client")
 	}
 
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), armhelpers.DefaultARMOperationTimeout)
+	defer cancel()
 	_, err = sc.client.EnsureResourceGroup(ctx, sc.resourceGroupName, sc.location, nil)
 	if err != nil {
 		return err
@@ -209,7 +208,8 @@ func (sc *scaleCmd) run(cmd *cobra.Command, args []string) error {
 		return errors.Wrap(err, "failed to load existing container service")
 	}
 
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), armhelpers.DefaultARMOperationTimeout)
+	defer cancel()
 	orchestratorInfo := sc.containerService.Properties.OrchestratorProfile
 	var currentNodeCount, highestUsedIndex, index, winPoolIndex int
 	winPoolIndex = -1
@@ -263,7 +263,8 @@ func (sc *scaleCmd) run(cmd *cobra.Command, args []string) error {
 
 			vmsToDelete := make([]string, 0)
 			for i := currentNodeCount - 1; i >= sc.newDesiredAgentCount; i-- {
-				vmsToDelete = append(vmsToDelete, indexToVM[i])
+				index = indexes[i]
+				vmsToDelete = append(vmsToDelete, indexToVM[index])
 			}
 
 			switch orchestratorInfo.OrchestratorType {
@@ -343,7 +344,7 @@ func (sc *scaleCmd) run(cmd *cobra.Command, args []string) error {
 			Locale: sc.locale,
 		},
 	}
-	templateGenerator, err := acsengine.InitializeTemplateGenerator(translator, sc.classicMode)
+	templateGenerator, err := acsengine.InitializeTemplateGenerator(translator)
 	if err != nil {
 		return errors.Wrap(err, "failed to initialize template generator")
 	}
