@@ -273,6 +273,8 @@ type KubernetesConfig struct {
 	MaxPods                         int               `json:"maxPods,omitempty"`
 	DockerBridgeSubnet              string            `json:"dockerBridgeSubnet,omitempty"`
 	UseManagedIdentity              bool              `json:"useManagedIdentity,omitempty"`
+	UserAssignedID                  string            `json:"userAssignedID,omitempty"`
+	UserAssignedClientID            string            `json:"userAssignedClientID,omitempty"` //Note: cannot be provided in config. Used *only* for transferring this to azure.json.
 	CustomHyperkubeImage            string            `json:"customHyperkubeImage,omitempty"`
 	DockerEngineVersion             string            `json:"dockerEngineVersion,omitempty"`
 	CustomCcmImage                  string            `json:"customCcmImage,omitempty"`
@@ -307,6 +309,7 @@ type KubernetesConfig struct {
 	CloudProviderRateLimitBucket    int               `json:"cloudProviderRateLimitBucket,omitempty"`
 	LoadBalancerSku                 string            `json:"loadBalancerSku,omitempty"`
 	ExcludeMasterFromStandardLB     *bool             `json:"excludeMasterFromStandardLB,omitempty"`
+	AzureCNIVersion                 string            `json:"azureCNIVersion,omitempty"`
 }
 
 // CustomFile has source as the full absolute source path to a file and dest
@@ -436,6 +439,8 @@ type AgentPoolProfile struct {
 	CustomNodeLabels      map[string]string `json:"customNodeLabels,omitempty"`
 	PreProvisionExtension *Extension        `json:"preProvisionExtension"`
 	Extensions            []Extension       `json:"extensions"`
+	SinglePlacementGroup  *bool             `json:"singlePlacementGroup,omitempty"`
+	AvailabilityZones     []string          `json:"availabilityZones,omitempty"`
 }
 
 // AgentPoolProfileRole represents an agent role
@@ -490,6 +495,16 @@ type Distro string
 func (p *Properties) HasWindows() bool {
 	for _, agentPoolProfile := range p.AgentPoolProfiles {
 		if agentPoolProfile.OSType == Windows {
+			return true
+		}
+	}
+	return false
+}
+
+// HasAvailabilityZones returns true if the cluster contains pools with zones
+func (p *Properties) HasAvailabilityZones() bool {
+	for _, agentPoolProfile := range p.AgentPoolProfiles {
+		if agentPoolProfile.HasAvailabilityZones() {
 			return true
 		}
 	}
@@ -594,6 +609,11 @@ func (a *AgentPoolProfile) GetSubnet() string {
 // SetSubnet sets the read-only subnet for the agent pool
 func (a *AgentPoolProfile) SetSubnet(subnet string) {
 	a.subnet = subnet
+}
+
+// HasAvailabilityZones returns true if the agent pool has availability zones
+func (a *AgentPoolProfile) HasAvailabilityZones() bool {
+	return a.AvailabilityZones != nil && len(a.AvailabilityZones) > 0
 }
 
 // HasSearchDomain returns true if the customer specified secrets to install

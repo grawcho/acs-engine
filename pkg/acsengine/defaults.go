@@ -241,6 +241,7 @@ func setPropertiesDefaults(cs *api.ContainerService, isUpgrade, isScale bool) (b
 
 	setStorageDefaults(properties)
 	setExtensionDefaults(properties)
+	setVMSSDefaults(properties)
 
 	certsGenerated, e := setDefaultCerts(properties)
 	if e != nil {
@@ -416,6 +417,19 @@ func setOrchestratorDefaults(cs *api.ContainerService, isUpdate bool) {
 			a.OrchestratorProfile.KubernetesConfig.ExcludeMasterFromStandardLB = helpers.PointerToBool(api.DefaultExcludeMasterFromStandardLB)
 		}
 
+		if common.IsKubernetesVersionGe(o.OrchestratorVersion, "1.9.0") {
+			// TODO make EnableAggregatedAPIs a pointer to bool so that a user can opt out of it
+			a.OrchestratorProfile.KubernetesConfig.EnableAggregatedAPIs = true
+		}
+
+		if a.OrchestratorProfile.IsAzureCNI() {
+			if a.HasWindows() {
+				a.OrchestratorProfile.KubernetesConfig.AzureCNIVersion = AzureCniPluginVerWindows
+			} else {
+				a.OrchestratorProfile.KubernetesConfig.AzureCNIVersion = AzureCniPluginVerLinux
+			}
+		}
+
 		// Configure addons
 		setAddonsConfig(cs)
 		// Configure kubelet
@@ -551,6 +565,28 @@ func setMasterNetworkDefaults(a *api.Properties, isUpgrade bool) {
 
 	if a.MasterProfile.HTTPSourceAddressPrefix == "" {
 		a.MasterProfile.HTTPSourceAddressPrefix = "*"
+	}
+}
+
+// setVMSSDefaults
+func setVMSSDefaults(a *api.Properties) {
+	for _, profile := range a.AgentPoolProfiles {
+		if profile.AvailabilityProfile == api.VirtualMachineScaleSets {
+			if profile.Count > 100 {
+				profile.SinglePlacementGroup = helpers.PointerToBool(false)
+			}
+			if profile.SinglePlacementGroup == nil {
+				profile.SinglePlacementGroup = helpers.PointerToBool(api.DefaultSinglePlacementGroup)
+			}
+			if profile.SinglePlacementGroup == helpers.PointerToBool(false) {
+				profile.StorageProfile = api.ManagedDisks
+			}
+			if profile.HasAvailabilityZones() {
+				a.OrchestratorProfile.KubernetesConfig.LoadBalancerSku = "Standard"
+				a.OrchestratorProfile.KubernetesConfig.ExcludeMasterFromStandardLB = helpers.PointerToBool(api.DefaultExcludeMasterFromStandardLB)
+			}
+		}
+
 	}
 }
 

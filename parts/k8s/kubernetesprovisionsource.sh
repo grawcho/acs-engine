@@ -32,8 +32,10 @@ ERR_KATA_APT_KEY_TIMEOUT=61 # Timeout waiting for kata apt-key
 ERR_KATA_INSTALL_TIMEOUT=62 # Timeout waiting for kata install
 ERR_CONTAINERD_DOWNLOAD_TIMEOUT=70 # Timeout waiting for containerd download(s)
 ERR_CUSTOM_SEARCH_DOMAINS_FAIL=80 # Unable to configure custom search domains
+ERR_GPU_DRIVERS_INSTALL_TIMEOUT=85 # Timeout waiting for GPU drivers install
 ERR_APT_DAILY_TIMEOUT=98 # Timeout waiting for apt daily updates
 ERR_APT_UPDATE_TIMEOUT=99 # Timeout waiting for apt-get update to complete
+ERR_CSE_PROVISION_SCRIPT_NOT_READY_TIMEOUT=100 # Timeout waiting for cloud-init to place this (!) script on the vm
 
 OS=$(cat /etc/*-release | grep ^ID= | tr -d 'ID="' | awk '{print toupper($0)}')
 UBUNTU_OS_NAME="UBUNTU"
@@ -41,6 +43,12 @@ RHEL_OS_NAME="RHEL"
 COREOS_OS_NAME="COREOS"
 KUBECTL=/usr/local/bin/kubectl
 DOCKER=/usr/bin/docker
+# latest version of the GPU drivers. Later this parameter could be bubbled up so that users can choose specific driver versions.
+GPU_DV=396.26
+GPU_DEST=/usr/local/nvidia
+NVIDIA_DOCKER_VERSION=2.0.3
+DOCKER_VERSION=1.13.1-1
+NVIDIA_CONTAINER_RUNTIME_VERSION=2.0.0
 
 retrycmd_if_failure() {
     retries=$1; wait_sleep=$2; timeout=$3; shift && shift && shift
@@ -153,36 +161,4 @@ systemctl_restart() {
             sleep $wait_sleep
         fi
     done
-}
-docker_health_probe()
-{
-  # finds out if docker runtime is misbehaving
-  every=10 #check every n seconds
-  max_fail=3 #max failure count before restarting docker
-  count_fail=0
-  trap 'exit 0' SIGINT SIGTERM
-  while true;
-  do
-    # we use docker run here instead of docker ps
-    # because dockerd might be running but containerd is misbehaving
-    # docker run with *it* options ensure the entire execution
-    # pipeline is healthy
-    docker run --rm busybox /bin/sh -c 'exit 0'
-    if [ $? -ne 0 ]; then
-	    echo "docker is not healthy"
-	    count_fail=$(( count_fail + 1 ))
-    else
-	    echo "docker is healthy"
-	    count_fail=0
-    fi
-    if [ $count_fail -ge  $max_fail ];then
-	   echo "docker has failed for ${max_fail} and checked ${every} seconds. will restart it"
-	   sudo systemctl restart docker
-	   if [ $? -ne 0 ]; then
-	     echo "Failed to restart docker, will try again in ${every}"
-	   fi
-    fi
-    echo "Sleeping for ${every}"
-    sleep ${every}
-  done
 }

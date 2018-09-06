@@ -18,6 +18,7 @@ import (
 	"github.com/Azure/azure-sdk-for-go/services/compute/mgmt/2018-04-01/compute"
 	"github.com/Azure/azure-sdk-for-go/services/graphrbac/1.6/graphrbac"
 	"github.com/Azure/azure-sdk-for-go/services/network/mgmt/2018-05-01/network"
+	"github.com/Azure/azure-sdk-for-go/services/preview/msi/mgmt/2015-08-31-preview/msi"
 	"github.com/Azure/azure-sdk-for-go/services/resources/mgmt/2018-05-01/resources"
 	"github.com/Azure/azure-sdk-for-go/services/storage/mgmt/2018-02-01/storage"
 	"github.com/Azure/go-autorest/autorest"
@@ -51,6 +52,7 @@ type AzureClient struct {
 	authorizationClient             authorization.RoleAssignmentsClient
 	deploymentsClient               resources.DeploymentsClient
 	deploymentOperationsClient      resources.DeploymentOperationsClient
+	msiClient                       msi.UserAssignedIdentitiesClient
 	resourcesClient                 apimanagement.GroupClient
 	storageAccountsClient           storage.AccountsClient
 	interfacesClient                network.InterfacesClient
@@ -107,7 +109,7 @@ func NewAzureClientWithDeviceAuth(env azure.Environment, subscriptionID string) 
 	}
 
 	client := &autorest.Client{
-		PollingDuration: 1 * time.Hour,
+		PollingDuration: DefaultARMOperationTimeout,
 	}
 
 	deviceCode, err := adal.InitiateDeviceAuth(client, *oauthConfig, acsEngineClientID, env.ServiceManagementEndpoint)
@@ -140,6 +142,26 @@ func NewAzureClientWithDeviceAuth(env azure.Environment, subscriptionID string) 
 // NewAzureClientWithClientSecret returns an AzureClient via client_id and client_secret
 func NewAzureClientWithClientSecret(env azure.Environment, subscriptionID, clientID, clientSecret string) (*AzureClient, error) {
 	oauthConfig, tenantID, err := getOAuthConfig(env, subscriptionID)
+	if err != nil {
+		return nil, err
+	}
+
+	armSpt, err := adal.NewServicePrincipalToken(*oauthConfig, clientID, clientSecret, env.ServiceManagementEndpoint)
+	if err != nil {
+		return nil, err
+	}
+	graphSpt, err := adal.NewServicePrincipalToken(*oauthConfig, clientID, clientSecret, env.GraphEndpoint)
+	if err != nil {
+		return nil, err
+	}
+	graphSpt.Refresh()
+
+	return getClient(env, subscriptionID, tenantID, armSpt, graphSpt), nil
+}
+
+// NewAzureClientWithClientSecretExternalTenant returns an AzureClient via client_id and client_secret from a tenant
+func NewAzureClientWithClientSecretExternalTenant(env azure.Environment, subscriptionID, tenantID, clientID, clientSecret string) (*AzureClient, error) {
+	oauthConfig, err := adal.NewOAuthConfig(env.ActiveDirectoryEndpoint, tenantID)
 	if err != nil {
 		return nil, err
 	}
@@ -272,6 +294,7 @@ func getClient(env azure.Environment, subscriptionID, tenantID string, armSpt *a
 		authorizationClient:             authorization.NewRoleAssignmentsClientWithBaseURI(env.ResourceManagerEndpoint, subscriptionID),
 		deploymentsClient:               resources.NewDeploymentsClientWithBaseURI(env.ResourceManagerEndpoint, subscriptionID),
 		deploymentOperationsClient:      resources.NewDeploymentOperationsClientWithBaseURI(env.ResourceManagerEndpoint, subscriptionID),
+		msiClient:                       msi.NewUserAssignedIdentitiesClient(subscriptionID),
 		resourcesClient:                 apimanagement.NewGroupClientWithBaseURI(env.ResourceManagerEndpoint, subscriptionID),
 		storageAccountsClient:           storage.NewAccountsClientWithBaseURI(env.ResourceManagerEndpoint, subscriptionID),
 		interfacesClient:                network.NewInterfacesClientWithBaseURI(env.ResourceManagerEndpoint, subscriptionID),
@@ -290,6 +313,7 @@ func getClient(env azure.Environment, subscriptionID, tenantID string, armSpt *a
 	c.authorizationClient.Authorizer = authorizer
 	c.deploymentsClient.Authorizer = authorizer
 	c.deploymentOperationsClient.Authorizer = authorizer
+	c.msiClient.Authorizer = authorizer
 	c.resourcesClient.Authorizer = authorizer
 	c.storageAccountsClient.Authorizer = authorizer
 	c.interfacesClient.Authorizer = authorizer
@@ -304,19 +328,19 @@ func getClient(env azure.Environment, subscriptionID, tenantID string, armSpt *a
 	c.resourcesClient.PollingDelay = time.Second * 5
 
 	// Set permissive timeouts to accommodate long-running operations
-	c.deploymentsClient.PollingDuration = time.Hour * 1
-	c.deploymentOperationsClient.PollingDuration = time.Hour * 1
-	c.applicationsClient.PollingDuration = time.Hour * 1
-	c.authorizationClient.PollingDuration = time.Hour * 1
-	c.disksClient.PollingDuration = time.Hour * 1
-	c.groupsClient.PollingDuration = time.Hour * 1
-	c.interfacesClient.PollingDuration = time.Hour * 1
-	c.providersClient.PollingDuration = time.Hour * 1
-	c.resourcesClient.PollingDuration = time.Hour * 1
-	c.storageAccountsClient.PollingDuration = time.Hour * 1
-	c.virtualMachineScaleSetsClient.PollingDuration = time.Hour * 1
-	c.virtualMachineScaleSetVMsClient.PollingDuration = time.Hour * 1
-	c.virtualMachinesClient.PollingDuration = time.Hour * 1
+	c.deploymentsClient.PollingDuration = DefaultARMOperationTimeout
+	c.deploymentOperationsClient.PollingDuration = DefaultARMOperationTimeout
+	c.applicationsClient.PollingDuration = DefaultARMOperationTimeout
+	c.authorizationClient.PollingDuration = DefaultARMOperationTimeout
+	c.disksClient.PollingDuration = DefaultARMOperationTimeout
+	c.groupsClient.PollingDuration = DefaultARMOperationTimeout
+	c.interfacesClient.PollingDuration = DefaultARMOperationTimeout
+	c.providersClient.PollingDuration = DefaultARMOperationTimeout
+	c.resourcesClient.PollingDuration = DefaultARMOperationTimeout
+	c.storageAccountsClient.PollingDuration = DefaultARMOperationTimeout
+	c.virtualMachineScaleSetsClient.PollingDuration = DefaultARMOperationTimeout
+	c.virtualMachineScaleSetVMsClient.PollingDuration = DefaultARMOperationTimeout
+	c.virtualMachinesClient.PollingDuration = DefaultARMOperationTimeout
 
 	graphAuthorizer := autorest.NewBearerAuthorizer(graphSpt)
 	c.applicationsClient.Authorizer = graphAuthorizer

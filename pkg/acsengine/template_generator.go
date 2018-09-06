@@ -216,6 +216,26 @@ func (t *TemplateGenerator) getTemplateFuncMap(cs *api.ContainerService) templat
 			}
 			return buf.String()
 		},
+		"GetKubeletConfigKeyValsPsh": func(kc *api.KubernetesConfig) string {
+			if kc == nil {
+				return ""
+			}
+			kubeletConfig := cs.Properties.OrchestratorProfile.KubernetesConfig.KubeletConfig
+			if kc.KubeletConfig != nil {
+				kubeletConfig = kc.KubeletConfig
+			}
+			// Order by key for consistency
+			keys := []string{}
+			for key := range kubeletConfig {
+				keys = append(keys, key)
+			}
+			sort.Strings(keys)
+			var buf bytes.Buffer
+			for _, key := range keys {
+				buf.WriteString(fmt.Sprintf("\"%s=%s\", ", key, kubeletConfig[key]))
+			}
+			return strings.TrimSuffix(buf.String(), ", ")
+		},
 		"GetK8sRuntimeConfigKeyVals": func(config map[string]string) string {
 			// Order by key for consistency
 			keys := []string{}
@@ -281,6 +301,27 @@ func (t *TemplateGenerator) getTemplateFuncMap(cs *api.ContainerService) templat
 		},
 		"UseManagedIdentity": func() bool {
 			return cs.Properties.OrchestratorProfile.KubernetesConfig.UseManagedIdentity
+		},
+		"UserAssignedIDEnabled": func() bool {
+			if cs.Properties.OrchestratorProfile.KubernetesConfig.UseManagedIdentity &&
+				cs.Properties.OrchestratorProfile.KubernetesConfig.UserAssignedID != "" {
+				return true
+			}
+			return false
+		},
+		"UserAssignedID": func() string {
+			if cs.Properties.OrchestratorProfile.KubernetesConfig.UseManagedIdentity &&
+				cs.Properties.OrchestratorProfile.KubernetesConfig.UserAssignedID != "" {
+				return cs.Properties.OrchestratorProfile.KubernetesConfig.UserAssignedID
+			}
+			return ""
+		},
+		"UserAssignedClientID": func() string {
+			if cs.Properties.OrchestratorProfile.KubernetesConfig.UseManagedIdentity &&
+				cs.Properties.OrchestratorProfile.KubernetesConfig.UserAssignedClientID != "" {
+				return cs.Properties.OrchestratorProfile.KubernetesConfig.UserAssignedClientID
+			}
+			return ""
 		},
 		"UseAksExtension": func() bool {
 			cloudSpecConfig := getCloudSpecConfig(cs.Location)
@@ -534,6 +575,9 @@ func (t *TemplateGenerator) getTemplateFuncMap(cs *api.ContainerService) templat
 		"GetKubernetesB64ProvisionSource": func() string {
 			return getBase64CustomScript(kubernetesProvisionSourceScript)
 		},
+		"GetKubernetesB64HealthMonitorScript": func() string {
+			return getBase64CustomScript(kubernetesHealthMonitorScript)
+		},
 		"GetKubernetesB64Installs": func() string {
 			return getBase64CustomScript(kubernetesInstalls)
 		},
@@ -679,8 +723,11 @@ func (t *TemplateGenerator) getTemplateFuncMap(cs *api.ContainerService) templat
 		"IsNSeriesSKU": func(profile *api.AgentPoolProfile) bool {
 			return isNSeriesSKU(profile)
 		},
-		"GetGPUDriversInstallScript": func(profile *api.AgentPoolProfile) string {
-			return getGPUDriversInstallScript(profile)
+		"UseSinglePlacementGroup": func(profile *api.AgentPoolProfile) bool {
+			return *profile.SinglePlacementGroup
+		},
+		"HasAvailabilityZones": func(profile *api.AgentPoolProfile) bool {
+			return profile.HasAvailabilityZones()
 		},
 		"HasLinuxSecrets": func() bool {
 			return cs.Properties.LinuxProfile.HasSecrets()

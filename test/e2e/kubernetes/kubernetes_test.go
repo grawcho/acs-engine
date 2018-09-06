@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strings"
 	"time"
 
 	"github.com/Azure/acs-engine/pkg/api/common"
@@ -15,8 +16,10 @@ import (
 	"github.com/Azure/acs-engine/test/e2e/engine"
 	"github.com/Azure/acs-engine/test/e2e/kubernetes/deployment"
 	"github.com/Azure/acs-engine/test/e2e/kubernetes/job"
+	"github.com/Azure/acs-engine/test/e2e/kubernetes/namespace"
 	"github.com/Azure/acs-engine/test/e2e/kubernetes/networkpolicy"
 	"github.com/Azure/acs-engine/test/e2e/kubernetes/node"
+	"github.com/Azure/acs-engine/test/e2e/kubernetes/persistentvolume"
 	"github.com/Azure/acs-engine/test/e2e/kubernetes/persistentvolumeclaims"
 	"github.com/Azure/acs-engine/test/e2e/kubernetes/pod"
 	"github.com/Azure/acs-engine/test/e2e/kubernetes/service"
@@ -28,6 +31,7 @@ import (
 
 const (
 	WorkloadDir = "workloads"
+	PolicyDir   = "workloads/policies"
 )
 
 var (
@@ -847,6 +851,90 @@ var _ = Describe("Azure Container Cluster using the Kubernetes Orchestrator", fu
 		})
 	})
 
+	Describe("with all zoned agent pools", func() {
+		It("should be labeled with zones for each node", func() {
+			if eng.HasAllZonesAgentPools() {
+				nodeList, err := node.Get()
+				Expect(err).NotTo(HaveOccurred())
+				for _, node := range nodeList.Nodes {
+					role := node.Metadata.Labels["kubernetes.io/role"]
+					if role == "agent" {
+						By("Ensuring that we get zones for each agent node")
+						zones := node.Metadata.Labels["failure-domain.beta.kubernetes.io/zone"]
+						contains := strings.Contains(zones, "-")
+						Expect(contains).To(Equal(true))
+					}
+				}
+			} else {
+				Skip("Availability zones was not configured for this Cluster Definition")
+			}
+		})
+
+		It("should create pv with zone labels and node affinity", func() {
+			if eng.HasAllZonesAgentPools() {
+				By("Creating a persistent volume claim")
+				pvcName := "azure-managed-disk" // should be the same as in pvc-premium.yaml
+				pvc, err := persistentvolumeclaims.CreatePersistentVolumeClaimsFromFile(filepath.Join(WorkloadDir, "pvc-premium.yaml"), pvcName, "default")
+				Expect(err).NotTo(HaveOccurred())
+				ready, err := pvc.WaitOnReady("default", 5*time.Second, cfg.Timeout)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(ready).To(Equal(true))
+
+				pvList, err := persistentvolume.Get()
+				Expect(err).NotTo(HaveOccurred())
+				pvZone := ""
+				for _, pv := range pvList.PersistentVolumes {
+					By("Ensuring that we get zones for the pv")
+					// zone is chosen by round-robin across all zones
+					pvZone = pv.Metadata.Labels["failure-domain.beta.kubernetes.io/zone"]
+					fmt.Printf("pvZone: %s\n", pvZone)
+					contains := strings.Contains(pvZone, "-")
+					Expect(contains).To(Equal(true))
+					// VolumeScheduling feature gate is set to true by default starting v1.10+
+					for _, expression := range pv.Spec.NodeAffinity.Required.NodeSelectorTerms[0].MatchExpressions {
+						if expression.Key == "failure-domain.beta.kubernetes.io/zone" {
+							By("Ensuring that we get nodeAffinity for each pv")
+							value := expression.Values[0]
+							fmt.Printf("NodeAffinity value: %s\n", value)
+							contains := strings.Contains(value, "-")
+							Expect(contains).To(Equal(true))
+						}
+					}
+				}
+
+				By("Launching a pod using the volume claim")
+				podName := "zone-pv-pod" // should be the same as in pod-pvc.yaml
+				testPod, err := pod.CreatePodFromFile(filepath.Join(WorkloadDir, "pod-pvc.yaml"), podName, "default")
+				Expect(err).NotTo(HaveOccurred())
+				ready, err = testPod.WaitOnReady(5*time.Second, cfg.Timeout)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(ready).To(Equal(true))
+
+				By("Checking that the pod can access volume")
+				valid, err := testPod.ValidatePVC("/mnt/azure", 10, 10*time.Second)
+				Expect(valid).To(BeTrue())
+				Expect(err).NotTo(HaveOccurred())
+
+				By("Ensuring that attached volume pv has the same zone as the zone of the node")
+				nodeName := testPod.Spec.NodeName
+				nodeList, err := node.GetByPrefix(nodeName)
+				Expect(err).NotTo(HaveOccurred())
+				nodeZone := nodeList[0].Metadata.Labels["failure-domain.beta.kubernetes.io/zone"]
+				fmt.Printf("pvZone: %s\n", pvZone)
+				fmt.Printf("nodeZone: %s\n", nodeZone)
+				Expect(nodeZone == pvZone).To(Equal(true))
+
+				By("Cleaning up after ourselves")
+				err = testPod.Delete()
+				Expect(err).NotTo(HaveOccurred())
+				err = pvc.Delete()
+				Expect(err).NotTo(HaveOccurred())
+			} else {
+				Skip("Availability zones was not configured for this Cluster Definition")
+			}
+		})
+	})
+
 	Describe("after the cluster has been up for awhile", func() {
 		It("dns-liveness pod should not have any restarts", func() {
 			if !eng.HasNetworkPolicy("calico") {
@@ -867,51 +955,119 @@ var _ = Describe("Azure Container Cluster using the Kubernetes Orchestrator", fu
 		})
 	})
 
-	Describe("with calico network policy enabled", func() {
-		It("should apply a network policy and deny outbound internet access to nginx pod", func() {
+	Describe("with calico or azure network policy enabled", func() {
+		It("should apply various network policies and enforce access to nginx pod", func() {
 			if eng.HasNetworkPolicy("calico") || eng.HasNetworkPolicy("azure") {
-				namespace := "default"
-				By("Creating a nginx deployment")
+				nsClientOne, nsClientTwo, nsServer := "client-one", "client-two", "server"
+				By("Creating namespaces")
+				_, err := namespace.Create(nsClientOne)
+				Expect(err).NotTo(HaveOccurred())
+				_, err = namespace.Create(nsClientTwo)
+				Expect(err).NotTo(HaveOccurred())
+				_, err = namespace.Create(nsServer)
+				Expect(err).NotTo(HaveOccurred())
+				By("Creating client and server nginx deployments")
 				r := rand.New(rand.NewSource(time.Now().UnixNano()))
-				deploymentName := fmt.Sprintf("nginx-%s-%v", cfg.Name, r.Intn(99999))
-				nginxDeploy, err := deployment.CreateLinuxDeploy("library/nginx:latest", deploymentName, namespace, "")
+				randInt := r.Intn(99999)
+				clientOneDeploymentName := fmt.Sprintf("nginx-%s-%v", cfg.Name, randInt)
+				clientTwoDeploymentName := fmt.Sprintf("nginx-%s-%v", cfg.Name, randInt+100000)
+				serverDeploymentName := fmt.Sprintf("nginx-%s-%v", cfg.Name, randInt+200000)
+				clientOneDeploy, err := deployment.CreateLinuxDeploy("library/nginx:latest", clientOneDeploymentName, nsClientOne, "--labels=role=client-one")
+				Expect(err).NotTo(HaveOccurred())
+				clientTwoDeploy, err := deployment.CreateLinuxDeploy("library/nginx:latest", clientTwoDeploymentName, nsClientTwo, "--labels=role=client-two")
+				Expect(err).NotTo(HaveOccurred())
+				serverDeploy, err := deployment.CreateLinuxDeploy("library/nginx:latest", serverDeploymentName, nsServer, "--labels=role=server")
 				Expect(err).NotTo(HaveOccurred())
 
-				By("Ensure there is a Running nginx pod")
-				running, err := pod.WaitOnReady(deploymentName, namespace, 3, 30*time.Second, cfg.Timeout)
+				By("Ensure there is a Running nginx client one pod")
+				running, err := pod.WaitOnReady(clientOneDeploymentName, nsClientOne, 3, 30*time.Second, cfg.Timeout)
 				Expect(err).NotTo(HaveOccurred())
 				Expect(running).To(Equal(true))
 
-				By("Ensuring we have outbound internet access from the nginx pods")
-				nginxPods, err := nginxDeploy.Pods()
+				By("Ensure there is a Running nginx client two pod")
+				running, err = pod.WaitOnReady(clientTwoDeploymentName, nsClientTwo, 3, 30*time.Second, cfg.Timeout)
 				Expect(err).NotTo(HaveOccurred())
-				Expect(len(nginxPods)).ToNot(BeZero())
-				for _, nginxPod := range nginxPods {
-					pass, err := nginxPod.CheckLinuxOutboundConnection(5*time.Second, cfg.Timeout)
+				Expect(running).To(Equal(true))
+
+				By("Ensure there is a Running nginx server pod")
+				running, err = pod.WaitOnReady(serverDeploymentName, nsServer, 3, 30*time.Second, cfg.Timeout)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(running).To(Equal(true))
+
+				By("Ensuring we have outbound internet access from the nginx client one pods")
+				clientOnePods, err := clientOneDeploy.Pods()
+				Expect(err).NotTo(HaveOccurred())
+				Expect(len(clientOnePods)).ToNot(BeZero())
+				for _, clientOnePod := range clientOnePods {
+					pass, err := clientOnePod.CheckLinuxOutboundConnection(5*time.Second, cfg.Timeout)
 					Expect(err).NotTo(HaveOccurred())
 					Expect(pass).To(BeTrue())
 				}
 
+				By("Ensuring we have outbound internet access from the nginx client one pods")
+				clientTwoPods, err := clientTwoDeploy.Pods()
+				Expect(err).NotTo(HaveOccurred())
+				Expect(len(clientTwoPods)).ToNot(BeZero())
+				for _, clientTwoPod := range clientTwoPods {
+					pass, err := clientTwoPod.CheckLinuxOutboundConnection(5*time.Second, cfg.Timeout)
+					Expect(err).NotTo(HaveOccurred())
+					Expect(pass).To(BeTrue())
+				}
+
+				By("Ensuring we have outbound internet access from the nginx server pods")
+				serverPods, err := serverDeploy.Pods()
+				Expect(err).NotTo(HaveOccurred())
+				Expect(len(serverPods)).ToNot(BeZero())
+				for _, serverPod := range serverPods {
+					pass, err := serverPod.CheckLinuxOutboundConnection(5*time.Second, cfg.Timeout)
+					Expect(err).NotTo(HaveOccurred())
+					Expect(pass).To(BeTrue())
+				}
+
+				var (
+					networkPolicyName string
+					namespace         string
+				)
+
 				By("Applying a network policy to deny egress access")
-				networkPolicyName := "calico-policy"
-				err = networkpolicy.CreateNetworkPolicyFromFile(filepath.Join(WorkloadDir, "calico-policy.yaml"), networkPolicyName, namespace)
+				networkPolicyName, namespace = "client-one-deny-egress", nsClientOne
+				err = networkpolicy.CreateNetworkPolicyFromFile(filepath.Join(PolicyDir, "client-one-deny-egress-policy.yaml"), networkPolicyName, namespace)
 				Expect(err).NotTo(HaveOccurred())
 
-				By("Ensuring we no longer have outbound internet access from the nginx pods")
-				for _, nginxPod := range nginxPods {
-					pass, err := nginxPod.CheckLinuxOutboundConnection(5*time.Second, 3*time.Minute)
+				By("Ensuring we no longer have outbound internet access from the nginx client pods")
+				for _, clientOnePod := range clientOnePods {
+					pass, err := clientOnePod.CheckLinuxOutboundConnection(5*time.Second, 3*time.Minute)
 					Expect(err).Should(HaveOccurred())
 					Expect(pass).To(BeFalse())
 				}
 
 				By("Cleaning up after ourselves")
 				networkpolicy.DeleteNetworkPolicy(networkPolicyName, namespace)
-				// TODO delete networkpolicy
-				// Expect(err).NotTo(HaveOccurred())
-				err = nginxDeploy.Delete()
+
+				By("Applying a network policy to deny ingress access")
+				networkPolicyName, namespace = "client-one-deny-ingress", nsServer
+				err = networkpolicy.CreateNetworkPolicyFromFile(filepath.Join(PolicyDir, "client-one-deny-ingress-policy.yaml"), networkPolicyName, namespace)
+				Expect(err).NotTo(HaveOccurred())
+
+				By("Ensuring we no longer have inbound internet access from the nginx server pods")
+				for _, clientOnePod := range clientOnePods {
+					for _, serverPod := range serverPods {
+						pass, err := clientOnePod.ValidateCurlConnection(serverPod.Status.PodIP, 5*time.Second, 3*time.Minute)
+						Expect(err).Should(HaveOccurred())
+						Expect(pass).To(BeFalse())
+					}
+				}
+
+				By("Cleaning up after ourselves")
+				networkpolicy.DeleteNetworkPolicy(networkPolicyName, namespace)
+				err = clientOneDeploy.Delete()
+				Expect(err).NotTo(HaveOccurred())
+				err = clientTwoDeploy.Delete()
+				Expect(err).NotTo(HaveOccurred())
+				err = serverDeploy.Delete()
 				Expect(err).NotTo(HaveOccurred())
 			} else {
-				Skip("Calico network policy was not provisioned for this Cluster Definition")
+				Skip("Calico or Azure network policy was not provisioned for this Cluster Definition")
 			}
 		})
 	})

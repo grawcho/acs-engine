@@ -44,8 +44,7 @@ const (
 )
 
 type deployCmd struct {
-	authArgs
-
+	authProvider
 	apimodelPath      string
 	dnsPrefix         string
 	autoSuffix        bool
@@ -68,7 +67,9 @@ type deployCmd struct {
 }
 
 func newDeployCmd() *cobra.Command {
-	dc := deployCmd{}
+	dc := deployCmd{
+		authProvider: &authArgs{},
+	}
 
 	deployCmd := &cobra.Command{
 		Use:   deployName,
@@ -103,7 +104,7 @@ func newDeployCmd() *cobra.Command {
 	f.BoolVarP(&dc.forceOverwrite, "force-overwrite", "f", false, "automatically overwrite existing files in the output directory")
 	f.StringArrayVar(&dc.set, "set", []string{}, "set values on the command line (can specify multiple or separate values with commas: key1=val1,key2=val2)")
 
-	addAuthFlags(&dc.authArgs, f)
+	addAuthFlags(dc.getAuthArgs(), f)
 
 	return deployCmd
 }
@@ -226,11 +227,11 @@ func (dc *deployCmd) loadAPIModel(cmd *cobra.Command, args []string) error {
 		return errors.New("--location does not match api model location")
 	}
 
-	if err = dc.authArgs.validateAuthArgs(); err != nil {
+	if err = dc.getAuthArgs().validateAuthArgs(); err != nil {
 		return err
 	}
 
-	dc.client, err = dc.authArgs.getClient()
+	dc.client, err = dc.authProvider.getClient()
 	if err != nil {
 		return errors.Wrap(err, "failed to get client")
 	}
@@ -308,12 +309,36 @@ func autofillApimodel(dc *deployCmd) error {
 		return err
 	}
 
-	useManagedIdentity := dc.containerService.Properties.OrchestratorProfile.KubernetesConfig != nil &&
-		dc.containerService.Properties.OrchestratorProfile.KubernetesConfig.UseManagedIdentity
+	k8sConfig := dc.containerService.Properties.OrchestratorProfile.KubernetesConfig
+
+	useManagedIdentity := k8sConfig != nil &&
+		k8sConfig.UseManagedIdentity
+
+	userAssignedID := k8sConfig != nil &&
+		k8sConfig.UseManagedIdentity &&
+		k8sConfig.UserAssignedID != ""
+
+	// Note: User assigned identity can be assigned from the ARM template, but the role assigment following that will
+	// fail due to a bug with the service. This code is added to wait till the newly created AAD identity is properly
+	// propogated.
+	if userAssignedID {
+		userID, err := dc.client.CreateUserAssignedID(dc.location, dc.resourceGroup, k8sConfig.UserAssignedID)
+		if err != nil {
+			return nil
+		}
+		// Fill up the client id for creating azure.json
+		k8sConfig.UserAssignedClientID = (*userID.ClientID).String()
+		err = dc.client.CreateRoleAssignmentSimple(ctx, dc.resourceGroup, (*userID.PrincipalID).String())
+		if err != nil {
+			return errors.Wrap(err, "apimodel: could not create role assignment for user assigned id ")
+		}
+		//TODO: Support e2e return fake user id.
+		return nil
+	}
 
 	if !useManagedIdentity {
 		spp := dc.containerService.Properties.ServicePrincipalProfile
-		if spp != nil && spp.ClientID == "" && spp.Secret == "" && spp.KeyvaultSecretRef == nil && (dc.ClientID.String() == "" || dc.ClientID.String() == "00000000-0000-0000-0000-000000000000") && dc.ClientSecret == "" {
+		if spp != nil && spp.ClientID == "" && spp.Secret == "" && spp.KeyvaultSecretRef == nil && (dc.getAuthArgs().ClientID.String() == "" || dc.getAuthArgs().ClientID.String() == "00000000-0000-0000-0000-000000000000") && dc.getAuthArgs().ClientSecret == "" {
 			log.Warnln("apimodel: ServicePrincipalProfile was missing or empty, creating application...")
 
 			// TODO: consider caching the creds here so they persist between subsequent runs of 'deploy'
@@ -356,10 +381,10 @@ func autofillApimodel(dc *deployCmd) error {
 				Secret:   secret,
 				ObjectID: servicePrincipalObjectID,
 			}
-		} else if (dc.containerService.Properties.ServicePrincipalProfile == nil || ((dc.containerService.Properties.ServicePrincipalProfile.ClientID == "" || dc.containerService.Properties.ServicePrincipalProfile.ClientID == "00000000-0000-0000-0000-000000000000") && dc.containerService.Properties.ServicePrincipalProfile.Secret == "")) && dc.ClientID.String() != "" && dc.ClientSecret != "" {
+		} else if (dc.containerService.Properties.ServicePrincipalProfile == nil || ((dc.containerService.Properties.ServicePrincipalProfile.ClientID == "" || dc.containerService.Properties.ServicePrincipalProfile.ClientID == "00000000-0000-0000-0000-000000000000") && dc.containerService.Properties.ServicePrincipalProfile.Secret == "")) && dc.getAuthArgs().ClientID.String() != "" && dc.getAuthArgs().ClientSecret != "" {
 			dc.containerService.Properties.ServicePrincipalProfile = &api.ServicePrincipalProfile{
-				ClientID: dc.ClientID.String(),
-				Secret:   dc.ClientSecret,
+				ClientID: dc.getAuthArgs().ClientID.String(),
+				Secret:   dc.getAuthArgs().ClientSecret,
 			}
 		}
 	}

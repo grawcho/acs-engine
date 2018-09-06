@@ -34,12 +34,6 @@ function testOutboundConnection() {
     retrycmd_if_failure 20 1 3 nc -vz www.google.com 443 || retrycmd_if_failure 20 1 3 nc -vz www.1688.com 443 || exit $ERR_OUTBOUND_CONN_FAIL
 }
 
-function waitForCloudInit() {
-    echo `date`,`hostname`, startwaitingforcloudinit>>/opt/m
-    wait_for_file 900 1 /var/log/azure/cloud-init.complete || exit $ERR_CLOUD_INIT_TIMEOUT
-    echo `date`,`hostname`, finishwaitingforcloudinit>>/opt/m
-}
-
 function holdWALinuxAgent() {
     if [[ $OS == $UBUNTU_OS_NAME ]]; then
         # make sure walinuxagent doesn't get updated in the middle of running this script
@@ -47,15 +41,12 @@ function holdWALinuxAgent() {
     fi
 }
 
-testOutboundConnection
-waitForCloudInit
-
-
 if [[ ! -z "${MASTER_NODE}" ]]; then
     installEtcd
 fi
 
 if $FULL_INSTALL_REQUIRED; then
+    testOutboundConnection
     holdWALinuxAgent
     installDeps
 else 
@@ -67,9 +58,12 @@ installNetworkPlugin
 installContainerd
 extractHyperkube
 ensureRPC
+createKubeManifestDir
 
 if [[ ! -z "${MASTER_NODE}" ]]; then
     configureEtcd
+else
+    removeEtcd
 fi
 
 if [ -f $CUSTOM_SEARCH_DOMAIN_SCRIPT ]; then
@@ -89,7 +83,6 @@ elif [[ "$CONTAINER_RUNTIME" == "kata-containers" ]]; then
         installKataContainersRuntime
     fi
 fi
-
 
 configureK8s
 configureCNI
@@ -116,6 +109,11 @@ if [[ ! -z "${MASTER_NODE}" ]]; then
     if [[ "${KUBERNETES_VERSION}" = 1.12.* ]]; then
         ensureKubelet 
     fi
+fi
+
+if [[ "${GPU_NODE}" = true ]]; then
+    installGPUDrivers
+    ensureGPUDrivers
 fi
 
 if $FULL_INSTALL_REQUIRED; then

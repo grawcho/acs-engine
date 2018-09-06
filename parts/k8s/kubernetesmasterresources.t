@@ -720,10 +720,14 @@
      },
  {{end}}
     {
+    {{if UserAssignedIDEnabled}}
+      "apiVersion": "[variables('apiVersionUserMSI')]",
+    {{else}}
     {{if .MasterProfile.IsManagedDisks}}
       "apiVersion": "[variables('apiVersionStorageManagedDisks')]",
     {{else}}
       "apiVersion": "[variables('apiVersionDefault')]",
+    {{end}}
     {{end}}
       "copy": {
         "count": "[sub(variables('masterCount'), variables('masterOffset'))]",
@@ -747,9 +751,18 @@
       "location": "[variables('location')]",
       "name": "[concat(variables('masterVMNamePrefix'), copyIndex(variables('masterOffset')))]",
       {{if UseManagedIdentity}}
+      {{if UserAssignedIDEnabled}}
+      "identity": {
+        "type": "userAssigned",
+        "userAssignedIdentities": {
+          "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities/', variables('userAssignedID'))]":{}
+        }
+      },
+      {{else}}
       "identity": {
         "type": "systemAssigned"
       },
+      {{end}}
       {{end}}
       {{if and IsOpenShift (not UseMasterCustomImage)}}
       "plan": {
@@ -839,6 +852,7 @@
       "type": "Microsoft.Compute/virtualMachines"
     },
     {{if UseManagedIdentity}}
+    {{if (not UserAssignedIDEnabled)}}
     {
       "apiVersion": "2014-10-01-preview",
       "copy": {
@@ -852,6 +866,7 @@
         "principalId": "[reference(concat('Microsoft.Compute/virtualMachines/', variables('masterVMNamePrefix'), copyIndex()), '2017-03-30', 'Full').identity.principalId]"
       }
     },
+    {{end}}
      {
        "type": "Microsoft.Compute/virtualMachines/extensions",
        "name": "[concat(variables('masterVMNamePrefix'), copyIndex(), '/ManagedIdentityExtension')]",
@@ -861,10 +876,16 @@
        },
        "apiVersion": "2015-05-01-preview",
        "location": "[resourceGroup().location]",
+       {{if (not UserAssignedIDEnabled)}}
        "dependsOn": [
          "[concat('Microsoft.Compute/virtualMachines/', variables('masterVMNamePrefix'), copyIndex())]",
          "[concat('Microsoft.Authorization/roleAssignments/', guid(concat('Microsoft.Compute/virtualMachines/', variables('masterVMNamePrefix'), copyIndex(), 'vmidentity')))]"
        ],
+       {{else}}
+       "dependsOn": [
+        "[concat('Microsoft.Compute/virtualMachines/', variables('masterVMNamePrefix'), copyIndex())]"
+       ],
+       {{end}}
        "properties": {
          "publisher": "Microsoft.ManagedIdentity",
          "type": "ManagedIdentityExtensionForLinux",
@@ -903,7 +924,7 @@
         {{if IsOpenShift}}
           "script": "{{ Base64 OpenShiftGetMasterSh }}"
         {{else}}
-          "commandToExecute": "[concat(variables('provisionScriptParametersCommon'),' ',variables('provisionScriptParametersMaster'), ' MASTER_INDEX=',copyIndex(variables('masterOffset')),' /usr/bin/nohup /bin/bash -c \"stat /opt/azure/containers/provision.complete > /dev/null 2>&1 || /bin/bash /opt/azure/containers/provision.sh >> /var/log/azure/cluster-provision.log 2>&1\"')]"
+          "commandToExecute": "[concat('for i in $(seq 1 1200); do if [ -f /opt/azure/containers/provision.sh ]; then break; fi; if [ $i -eq 1200 ]; then exit 100; else sleep 1; fi; done; ', variables('provisionScriptParametersCommon'),' ',variables('provisionScriptParametersMaster'), ' MASTER_INDEX=',copyIndex(variables('masterOffset')),' /usr/bin/nohup /bin/bash -c \"stat /opt/azure/containers/provision.complete > /dev/null 2>&1 || /bin/bash /opt/azure/containers/provision.sh >> /var/log/azure/cluster-provision.log 2>&1\"')]"
         {{end}}
         }
       }
