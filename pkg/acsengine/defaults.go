@@ -97,7 +97,7 @@ var (
 		ImageOffer:     "aks",
 		ImageSku:       "aksbase",
 		ImagePublisher: "microsoft-aks",
-		ImageVersion:   "0.0.10",
+		ImageVersion:   "0.13.0",
 	}
 
 	//DefaultOpenShift39RHELImageConfig is the OpenShift on RHEL distribution.
@@ -233,15 +233,21 @@ func setPropertiesDefaults(cs *api.ContainerService, isUpgrade, isScale bool) (b
 
 	setOrchestratorDefaults(cs, isUpgrade || isScale)
 
-	setMasterNetworkDefaults(properties, isUpgrade)
+	// Set master profile defaults if this cluster configuration includes master node(s)
+	if cs.Properties.MasterProfile != nil {
+		setMasterProfileDefaults(properties, isUpgrade)
+	}
 
-	setHostedMasterNetworkDefaults(properties)
-
-	setAgentNetworkDefaults(properties, isUpgrade, isScale)
+	setAgentProfileDefaults(properties, isUpgrade, isScale)
 
 	setStorageDefaults(properties)
 	setExtensionDefaults(properties)
 	setVMSSDefaults(properties)
+
+	// Set hosted master profile defaults if this cluster configuration has a hosted control plane
+	if cs.Properties.HostedMasterProfile != nil {
+		setHostedMasterProfileDefaults(properties)
+	}
 
 	certsGenerated, e := setDefaultCerts(properties)
 	if e != nil {
@@ -397,8 +403,14 @@ func setOrchestratorDefaults(cs *api.ContainerService, isUpdate bool) {
 			a.OrchestratorProfile.KubernetesConfig.PrivateCluster.JumpboxProfile.StorageProfile = api.ManagedDisks
 		}
 
-		if a.OrchestratorProfile.KubernetesConfig.EnableRbac == nil {
-			a.OrchestratorProfile.KubernetesConfig.EnableRbac = helpers.PointerToBool(api.DefaultRBACEnabled)
+		if !helpers.IsFalseBoolPointer(a.OrchestratorProfile.KubernetesConfig.EnableRbac) {
+			if common.IsKubernetesVersionGe(o.OrchestratorVersion, "1.9.0") {
+				// TODO make EnableAggregatedAPIs a pointer to bool so that a user can opt out of it
+				a.OrchestratorProfile.KubernetesConfig.EnableAggregatedAPIs = true
+			}
+			if a.OrchestratorProfile.KubernetesConfig.EnableRbac == nil {
+				a.OrchestratorProfile.KubernetesConfig.EnableRbac = helpers.PointerToBool(api.DefaultRBACEnabled)
+			}
 		}
 
 		if a.OrchestratorProfile.KubernetesConfig.EnableSecureKubelet == nil {
@@ -415,11 +427,6 @@ func setOrchestratorDefaults(cs *api.ContainerService, isUpdate bool) {
 
 		if common.IsKubernetesVersionGe(a.OrchestratorProfile.OrchestratorVersion, "1.11.0") && a.OrchestratorProfile.KubernetesConfig.LoadBalancerSku == "Standard" {
 			a.OrchestratorProfile.KubernetesConfig.ExcludeMasterFromStandardLB = helpers.PointerToBool(api.DefaultExcludeMasterFromStandardLB)
-		}
-
-		if common.IsKubernetesVersionGe(o.OrchestratorVersion, "1.9.0") {
-			// TODO make EnableAggregatedAPIs a pointer to bool so that a user can opt out of it
-			a.OrchestratorProfile.KubernetesConfig.EnableAggregatedAPIs = true
 		}
 
 		if a.OrchestratorProfile.IsAzureCNI() {
@@ -482,19 +489,7 @@ func setExtensionDefaults(a *api.Properties) {
 	}
 }
 
-// SetHostedMasterNetworkDefaults for hosted masters
-func setHostedMasterNetworkDefaults(a *api.Properties) {
-	if a.HostedMasterProfile == nil {
-		return
-	}
-	a.HostedMasterProfile.Subnet = DefaultKubernetesMasterSubnet
-}
-
-// SetMasterNetworkDefaults for masters
-func setMasterNetworkDefaults(a *api.Properties, isUpgrade bool) {
-	if a.MasterProfile == nil {
-		return
-	}
+func setMasterProfileDefaults(a *api.Properties, isUpgrade bool) {
 	// don't default Distro for OpenShift
 	if !a.OrchestratorProfile.IsOpenShift() {
 		if a.MasterProfile.Distro == "" {
@@ -590,8 +585,7 @@ func setVMSSDefaults(a *api.Properties) {
 	}
 }
 
-// SetAgentNetworkDefaults for agents
-func setAgentNetworkDefaults(a *api.Properties, isUpgrade, isScale bool) {
+func setAgentProfileDefaults(a *api.Properties, isUpgrade, isScale bool) {
 	// configure the subnets if not in custom VNET
 	if a.MasterProfile != nil && !a.MasterProfile.IsCustomVNET() {
 		subnetCounter := 0
@@ -624,7 +618,11 @@ func setAgentNetworkDefaults(a *api.Properties, isUpgrade, isScale bool) {
 		// don't default Distro for OpenShift
 		if !a.OrchestratorProfile.IsOpenShift() {
 			if profile.Distro == "" {
-				profile.Distro = api.AKS
+				if profile.OSDiskSizeGB != 0 && profile.OSDiskSizeGB < api.VHDDiskSizeAKS {
+					profile.Distro = api.Ubuntu
+				} else {
+					profile.Distro = api.AKS
+				}
 			}
 		}
 
@@ -661,11 +659,8 @@ func setStorageDefaults(a *api.Properties) {
 		}
 		if len(profile.AvailabilityProfile) == 0 {
 			profile.AvailabilityProfile = api.VirtualMachineScaleSets
-			// VMSS is not supported for k8s below 1.10.0
-			if a.OrchestratorProfile.OrchestratorType == api.Kubernetes && !common.IsKubernetesVersionGe(a.OrchestratorProfile.OrchestratorVersion, "1.10.0") {
-				profile.AvailabilityProfile = api.AvailabilitySet
-				// VMSS is not supported with instance metadata for k8s below 1.10.2
-			} else if a.OrchestratorProfile.OrchestratorType == api.Kubernetes && helpers.IsTrueBoolPointer(a.OrchestratorProfile.KubernetesConfig.UseInstanceMetadata) && !common.IsKubernetesVersionGe(a.OrchestratorProfile.OrchestratorVersion, "1.10.2") {
+			// VMSS is not supported for k8s below 1.10.2
+			if a.OrchestratorProfile.OrchestratorType == api.Kubernetes && !common.IsKubernetesVersionGe(a.OrchestratorProfile.OrchestratorVersion, "1.10.2") {
 				profile.AvailabilityProfile = api.AvailabilitySet
 			}
 		}
@@ -673,6 +668,10 @@ func setStorageDefaults(a *api.Properties) {
 			profile.ScaleSetEvictionPolicy = api.ScaleSetEvictionPolicyDelete
 		}
 	}
+}
+
+func setHostedMasterProfileDefaults(a *api.Properties) {
+	a.HostedMasterProfile.Subnet = DefaultKubernetesMasterSubnet
 }
 
 func setDefaultCerts(a *api.Properties) (bool, error) {
