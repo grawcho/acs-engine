@@ -234,6 +234,7 @@ type KubernetesAddon struct {
 	Enabled    *bool                     `json:"enabled,omitempty"`
 	Containers []KubernetesContainerSpec `json:"containers,omitempty"`
 	Config     map[string]string         `json:"config,omitempty"`
+	Data       string                    `json:"data,omitempty"`
 }
 
 // IsEnabled returns if the addon is explicitly enabled, or the user-provided default if non explicitly enabled
@@ -364,6 +365,7 @@ type MasterProfile struct {
 	OSDiskSizeGB             int               `json:"osDiskSizeGB,omitempty" validate:"min=0,max=1023"`
 	VnetSubnetID             string            `json:"vnetSubnetID,omitempty"`
 	VnetCidr                 string            `json:"vnetCidr,omitempty"`
+	AgentVnetSubnetID        string            `json:"agentVnetSubnetID,omitempty"`
 	FirstConsecutiveStaticIP string            `json:"firstConsecutiveStaticIP,omitempty"`
 	IPAddressCount           int               `json:"ipAddressCount,omitempty" validate:"min=0,max=256"`
 	StorageProfile           string            `json:"storageProfile,omitempty" validate:"eq=StorageAccount|eq=ManagedDisks|len=0"`
@@ -375,6 +377,8 @@ type MasterProfile struct {
 	KubernetesConfig         *KubernetesConfig `json:"kubernetesConfig,omitempty"`
 	ImageRef                 *ImageReference   `json:"imageReference,omitempty"`
 	CustomFiles              *[]CustomFile     `json:"customFiles,omitempty"`
+	AvailabilityProfile      string            `json:"availabilityProfile"`
+	AgentSubnet              string            `json:"agentSubnet,omitempty"`
 
 	// subnet is internal
 	subnet string
@@ -544,6 +548,25 @@ func (m *MasterProfile) IsRHEL() bool {
 // IsCoreOS returns true if the master specified a CoreOS distro
 func (m *MasterProfile) IsCoreOS() bool {
 	return m.Distro == CoreOS
+}
+
+// IsVirtualMachineScaleSets returns true if the master availability profile is VMSS
+func (m *MasterProfile) IsVirtualMachineScaleSets() bool {
+	return m.AvailabilityProfile == VirtualMachineScaleSets
+}
+
+// IsAllVirtualMachineScaleSets returns true if the cluster contains only Virtual Machine Scale Sets
+func (p *Properties) IsAllVirtualMachineScaleSets() bool {
+	isAll := p.MasterProfile.IsVirtualMachineScaleSets()
+	if isAll {
+		for _, agentPoolProfile := range p.AgentPoolProfiles {
+			if agentPoolProfile.AvailabilityProfile != VirtualMachineScaleSets {
+				isAll = false
+				break
+			}
+		}
+	}
+	return isAll
 }
 
 // IsCustomVNET returns true if the customer brought their own VNET

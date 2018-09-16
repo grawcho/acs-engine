@@ -833,6 +833,7 @@ func convertAddonsToVlabs(a *KubernetesConfig, v *vlabs.KubernetesConfig) {
 			Name:    a.Addons[i].Name,
 			Enabled: a.Addons[i].Enabled,
 			Config:  map[string]string{},
+			Data:    a.Addons[i].Data,
 		})
 		for j := range a.Addons[i].Containers {
 			v.Addons[i].Containers = append(v.Addons[i].Containers, vlabs.KubernetesContainerSpec{
@@ -893,6 +894,7 @@ func convertMasterProfileToVLabs(api *MasterProfile, vlabsProfile *vlabs.MasterP
 	vlabsProfile.VMSize = api.VMSize
 	vlabsProfile.OSDiskSizeGB = api.OSDiskSizeGB
 	vlabsProfile.VnetSubnetID = api.VnetSubnetID
+	vlabsProfile.AgentVnetSubnetID = api.AgentVnetSubnetID
 	vlabsProfile.FirstConsecutiveStaticIP = api.FirstConsecutiveStaticIP
 	vlabsProfile.VnetCidr = api.VnetCidr
 	vlabsProfile.SetSubnet(api.Subnet)
@@ -919,7 +921,8 @@ func convertMasterProfileToVLabs(api *MasterProfile, vlabsProfile *vlabs.MasterP
 		vlabsProfile.ImageRef.Name = api.ImageRef.Name
 		vlabsProfile.ImageRef.ResourceGroup = api.ImageRef.ResourceGroup
 	}
-
+	vlabsProfile.AvailabilityProfile = api.AvailabilityProfile
+	vlabsProfile.AgentSubnet = api.AgentSubnet
 	convertCustomFilesToVlabs(api, vlabsProfile)
 }
 

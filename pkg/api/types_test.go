@@ -392,7 +392,41 @@ func TestTotalNodes(t *testing.T) {
 		}
 	}
 }
+func TestMasterAvailabilityProfile(t *testing.T) {
+	cases := []struct {
+		p              Properties
+		expectedISVMSS bool
+	}{
+		{
+			p: Properties{
+				MasterProfile: &MasterProfile{},
+			},
+			expectedISVMSS: false,
+		},
+		{
+			p: Properties{
+				MasterProfile: &MasterProfile{
+					AvailabilityProfile: AvailabilitySet,
+				},
+			},
+			expectedISVMSS: false,
+		},
+		{
+			p: Properties{
+				MasterProfile: &MasterProfile{
+					AvailabilityProfile: VirtualMachineScaleSets,
+				},
+			},
+			expectedISVMSS: true,
+		},
+	}
 
+	for _, c := range cases {
+		if c.p.MasterProfile.IsVirtualMachineScaleSets() != c.expectedISVMSS {
+			t.Fatalf("expected MasterProfile.IsVirtualMachineScaleSets() to return %t but instead returned %t", c.expectedISVMSS, c.p.MasterProfile.IsVirtualMachineScaleSets())
+		}
+	}
+}
 func TestAvailabilityProfile(t *testing.T) {
 	cases := []struct {
 		p               Properties
@@ -1045,10 +1079,10 @@ func TestIsKeyVaultFlexVolumeEnabled(t *testing.T) {
 	}
 	c.Addons = append(c.Addons, getMockAddon(DefaultKeyVaultFlexVolumeAddonName))
 	enabled = c.IsKeyVaultFlexVolumeEnabled()
-	if enabled {
+	if !enabled {
 		t.Fatalf("KubernetesConfig.IsKeyVaultFlexVolumeEnabled() should return true when no keyvault flex volume has been specified, instead returned %t", enabled)
 	}
-	b := true
+	b := false
 	c = KubernetesConfig{
 		Addons: []KubernetesAddon{
 			{
@@ -1058,8 +1092,8 @@ func TestIsKeyVaultFlexVolumeEnabled(t *testing.T) {
 		},
 	}
 	enabled = c.IsKeyVaultFlexVolumeEnabled()
-	if !enabled {
-		t.Fatalf("KubernetesConfig.IsKeyVaultFlexVolumeEnabled() should return false when no keyvault flex volume addon has been specified as disabled, instead returned %t", enabled)
+	if enabled {
+		t.Fatalf("KubernetesConfig.IsKeyVaultFlexVolumeEnabled() should return false when keyvault flex volume addon has been specified as disabled, instead returned %t", enabled)
 	}
 }
 

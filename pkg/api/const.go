@@ -62,6 +62,16 @@ const (
 const (
 	// AvailabilitySet means that the vms are in an availability set
 	AvailabilitySet = "AvailabilitySet"
+	// DefaultFirstConsecutiveKubernetesStaticIP specifies the static IP address on Kubernetes master 0
+	DefaultFirstConsecutiveKubernetesStaticIP = "10.240.255.5"
+	// DefaultFirstConsecutiveKubernetesStaticIPVMSS specifies the static IP address on Kubernetes master 0 of VMSS
+	DefaultFirstConsecutiveKubernetesStaticIPVMSS = "10.240.0.4"
+	// DefaultKubernetesFirstConsecutiveStaticIPOffset specifies the IP address offset of master 0
+	// when VNET integration is enabled.
+	DefaultKubernetesFirstConsecutiveStaticIPOffset = 5
+	// DefaultKubernetesFirstConsecutiveStaticIPOffsetVMSS specifies the IP address offset of master 0 in VMSS
+	// when VNET integration is enabled.
+	DefaultKubernetesFirstConsecutiveStaticIPOffsetVMSS = 4
 	// VirtualMachineScaleSets means that the vms are in a virtual machine scaleset
 	VirtualMachineScaleSets = "VirtualMachineScaleSets"
 	// ScaleSetPriorityRegular is the default ScaleSet Priority
@@ -99,7 +109,7 @@ const (
 	// DefaultSMBFlexVolumeAddonEnabled determines the acs-engine provided default for enabling smb flexvolume addon
 	DefaultSMBFlexVolumeAddonEnabled = true
 	// DefaultKeyVaultFlexVolumeAddonEnabled determines the acs-engine provided default for enabling key vault flexvolume addon
-	DefaultKeyVaultFlexVolumeAddonEnabled = false
+	DefaultKeyVaultFlexVolumeAddonEnabled = true
 	// DefaultDashboardAddonEnabled determines the acs-engine provided default for enabling kubernetes-dashboard addon
 	DefaultDashboardAddonEnabled = true
 	// DefaultReschedulerAddonEnabled determines the acs-engine provided default for enabling kubernetes-rescheduler addon
