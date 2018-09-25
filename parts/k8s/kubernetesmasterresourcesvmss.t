@@ -36,19 +36,8 @@
       "enabledForDiskEncryption": "false",
       "enabledForTemplateDeployment": "false",
       "tenantId": "[variables('tenantID')]",
-  {{if not UseManagedIdentity}}
-      "accessPolicies": 
-      [
-        {
-          "tenantId": "[variables('tenantID')]",
-          "objectId": "[parameters('servicePrincipalObjectId')]",
-          "permissions": {
-            "keys": ["create", "encrypt", "decrypt", "get", "list"]
-          }
-        }
-      ],
-  {{else}}
-      "accessPolicies": 
+  {{if UseManagedIdentity}}
+    "accessPolicies": 
       [
         {
           "objectId": "[reference(concat('Microsoft.Compute/virtualMachineScaleSets/', variables('masterVMNamePrefix'), 'vmss'), '2017-03-30', 'Full').identity.principalId]",
@@ -63,6 +52,17 @@
           },
           "tenantId": "[variables('tenantID')]"
         },
+      ],
+  {{else}}
+      "accessPolicies": 
+      [
+        {
+          "tenantId": "[variables('tenantID')]",
+          "objectId": "[parameters('servicePrincipalObjectId')]",
+          "permissions": {
+            "keys": ["create", "encrypt", "decrypt", "get", "list"]
+          }
+        }
       ],
   {{end}}
       "sku": {
@@ -186,14 +186,21 @@
 },
 {{end}}
 {
-  "apiVersion": "[variables('apiVersionDefault')]",
+  "apiVersion": "2018-04-01",
   "location": "[variables('location')]",
   "name": "[variables('masterPublicIPAddressName')]",
   "properties": {
     "dnsSettings": {
       "domainNameLabel": "[variables('masterFqdnPrefix')]"
     },
+    {{ if .MasterProfile.HasAvailabilityZones}}
+    "publicIPAllocationMethod": "Static"
+    {{else}}
     "publicIPAllocationMethod": "Dynamic"
+    {{end}}
+  },
+  "sku": {
+      "name": "[variables('loadBalancerSku')]"
   },
   "type": "Microsoft.Network/publicIPAddresses"
 },
@@ -201,7 +208,7 @@
     "type": "Microsoft.Network/loadBalancers",
     "name": "[variables('masterLbName')]",
     "location": "[variables('location')]",
-    "apiVersion": "[variables('apiVersionDefault')]",
+    "apiVersion": "2018-04-01",
     "dependsOn": [
         "[concat('Microsoft.Network/publicIPAddresses/', variables('masterPublicIPAddressName'))]"
     ],
@@ -269,6 +276,9 @@
             }
           }
         ]
+    },
+    "sku": {
+        "name": "[variables('loadBalancerSku')]"
     }
 },
 {
@@ -290,6 +300,9 @@
       "poolName": "master"
     },
     "location": "[variables('location')]",
+    {{ if .MasterProfile.HasAvailabilityZones}}
+    "zones": "[parameters('availabilityZones')]",
+    {{ end }}
     "name": "[concat(variables('masterVMNamePrefix'), 'vmss')]",
     {{if UseManagedIdentity}}
     {{if UserAssignedIDEnabled}}
@@ -311,6 +324,7 @@
       "name": "[parameters('masterVMSize')]"
     },
     "properties": {
+      "singlePlacementGroup": {{ .MasterProfile.SinglePlacementGroup}},
       "overprovision": false,
       "upgradePolicy": {
         "mode": "Manual"

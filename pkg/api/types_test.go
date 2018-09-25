@@ -2,6 +2,7 @@ package api
 
 import (
 	"log"
+	"regexp"
 	"testing"
 
 	"github.com/Azure/acs-engine/pkg/helpers"
@@ -482,14 +483,14 @@ func TestAvailabilityProfile(t *testing.T) {
 	}
 
 	for _, c := range cases {
-		if c.p.HasVirtualMachineScaleSets() != c.expectedHasVMSS {
-			t.Fatalf("expected HasVirtualMachineScaleSets() to return %t but instead returned %t", c.expectedHasVMSS, c.p.HasVirtualMachineScaleSets())
+		if c.p.HasVMSSAgentPool() != c.expectedHasVMSS {
+			t.Fatalf("expected HasVMSSAgentPool() to return %t but instead returned %t", c.expectedHasVMSS, c.p.HasVMSSAgentPool())
 		}
 		if c.p.AgentPoolProfiles[0].IsVirtualMachineScaleSets() != c.expectedISVMSS {
 			t.Fatalf("expected IsVirtualMachineScaleSets() to return %t but instead returned %t", c.expectedISVMSS, c.p.AgentPoolProfiles[0].IsVirtualMachineScaleSets())
 		}
 		if c.p.AgentPoolProfiles[0].IsAvailabilitySets() != c.expectedIsAS {
-			t.Fatalf("expected HasVirtualMachineScaleSets() to return %t but instead returned %t", c.expectedIsAS, c.p.AgentPoolProfiles[0].IsAvailabilitySets())
+			t.Fatalf("expected IsAvailabilitySets() to return %t but instead returned %t", c.expectedIsAS, c.p.AgentPoolProfiles[0].IsAvailabilitySets())
 		}
 		if c.p.AgentPoolProfiles[0].IsLowPriorityScaleSet() != c.expectedLowPri {
 			t.Fatalf("expected IsLowPriorityScaleSet() to return %t but instead returned %t", c.expectedLowPri, c.p.AgentPoolProfiles[0].IsLowPriorityScaleSet())
@@ -545,6 +546,88 @@ func TestIsCustomVNET(t *testing.T) {
 		}
 	}
 
+}
+
+func TestHasAvailabilityZones(t *testing.T) {
+	cases := []struct {
+		p                Properties
+		expectedMaster   bool
+		expectedAgent    bool
+		expectedAllZones bool
+	}{
+		{
+			p: Properties{
+				MasterProfile: &MasterProfile{
+					Count:             1,
+					AvailabilityZones: []string{"1", "2"},
+				},
+				AgentPoolProfiles: []*AgentPoolProfile{
+					{
+						Count:             1,
+						AvailabilityZones: []string{"1", "2"},
+					},
+					{
+						Count:             1,
+						AvailabilityZones: []string{"1", "2"},
+					},
+				},
+			},
+			expectedMaster:   true,
+			expectedAgent:    true,
+			expectedAllZones: true,
+		},
+		{
+			p: Properties{
+				MasterProfile: &MasterProfile{
+					Count: 1,
+				},
+				AgentPoolProfiles: []*AgentPoolProfile{
+					{
+						Count: 1,
+					},
+					{
+						Count:             1,
+						AvailabilityZones: []string{"1", "2"},
+					},
+				},
+			},
+			expectedMaster:   false,
+			expectedAgent:    false,
+			expectedAllZones: false,
+		},
+		{
+			p: Properties{
+				MasterProfile: &MasterProfile{
+					Count: 1,
+				},
+				AgentPoolProfiles: []*AgentPoolProfile{
+					{
+						Count:             1,
+						AvailabilityZones: []string{},
+					},
+					{
+						Count:             1,
+						AvailabilityZones: []string{"1", "2"},
+					},
+				},
+			},
+			expectedMaster:   false,
+			expectedAgent:    false,
+			expectedAllZones: false,
+		},
+	}
+
+	for _, c := range cases {
+		if c.p.MasterProfile.HasAvailabilityZones() != c.expectedMaster {
+			t.Fatalf("expected HasAvailabilityZones() to return %t but instead returned %t", c.expectedMaster, c.p.MasterProfile.HasAvailabilityZones())
+		}
+		if c.p.AgentPoolProfiles[0].HasAvailabilityZones() != c.expectedAgent {
+			t.Fatalf("expected HasAvailabilityZones() to return %t but instead returned %t", c.expectedAgent, c.p.AgentPoolProfiles[0].HasAvailabilityZones())
+		}
+		if c.p.HasZonesForAllAgentPools() != c.expectedAllZones {
+			t.Fatalf("expected HasZonesForAllAgentPools() to return %t but instead returned %t", c.expectedAllZones, c.p.HasZonesForAllAgentPools())
+		}
+	}
 }
 
 func TestRequireRouteTable(t *testing.T) {
@@ -1291,6 +1374,200 @@ func TestIsMetricsServerEnabled(t *testing.T) {
 	}
 }
 
+func TestCloudProviderDefaults(t *testing.T) {
+	// Test cloudprovider defaults when no user-provided values
+	v := "1.8.0"
+	o := OrchestratorProfile{
+		OrchestratorType:    "Kubernetes",
+		OrchestratorVersion: v,
+		KubernetesConfig:    &KubernetesConfig{},
+	}
+	o.KubernetesConfig.SetCloudProviderBackoffDefaults()
+	o.KubernetesConfig.SetCloudProviderRateLimitDefaults()
+
+	intCases := []struct {
+		defaultVal  int
+		computedVal int
+	}{
+		{
+			defaultVal:  DefaultKubernetesCloudProviderBackoffRetries,
+			computedVal: o.KubernetesConfig.CloudProviderBackoffRetries,
+		},
+		{
+			defaultVal:  DefaultKubernetesCloudProviderBackoffDuration,
+			computedVal: o.KubernetesConfig.CloudProviderBackoffDuration,
+		},
+		{
+			defaultVal:  DefaultKubernetesCloudProviderRateLimitBucket,
+			computedVal: o.KubernetesConfig.CloudProviderRateLimitBucket,
+		},
+	}
+
+	for _, c := range intCases {
+		if c.computedVal != c.defaultVal {
+			t.Fatalf("KubernetesConfig empty cloudprovider configs should reflect default values after SetCloudProviderBackoffDefaults(), expected %d, got %d", c.defaultVal, c.computedVal)
+		}
+	}
+
+	floatCases := []struct {
+		defaultVal  float64
+		computedVal float64
+	}{
+		{
+			defaultVal:  DefaultKubernetesCloudProviderBackoffJitter,
+			computedVal: o.KubernetesConfig.CloudProviderBackoffJitter,
+		},
+		{
+			defaultVal:  DefaultKubernetesCloudProviderBackoffExponent,
+			computedVal: o.KubernetesConfig.CloudProviderBackoffExponent,
+		},
+		{
+			defaultVal:  DefaultKubernetesCloudProviderRateLimitQPS,
+			computedVal: o.KubernetesConfig.CloudProviderRateLimitQPS,
+		},
+	}
+
+	for _, c := range floatCases {
+		if c.computedVal != c.defaultVal {
+			t.Fatalf("KubernetesConfig empty cloudprovider configs should reflect default values after SetCloudProviderBackoffDefaults(), expected %f, got %f", c.defaultVal, c.computedVal)
+		}
+	}
+
+	customCloudProviderBackoffDuration := 99
+	customCloudProviderBackoffExponent := 10.0
+	customCloudProviderBackoffJitter := 11.9
+	customCloudProviderBackoffRetries := 9
+	customCloudProviderRateLimitBucket := 37
+	customCloudProviderRateLimitQPS := 9.9
+
+	// Test cloudprovider defaults when user provides configuration
+	v = "1.8.0"
+	o = OrchestratorProfile{
+		OrchestratorType:    "Kubernetes",
+		OrchestratorVersion: v,
+		KubernetesConfig: &KubernetesConfig{
+			CloudProviderBackoffDuration: customCloudProviderBackoffDuration,
+			CloudProviderBackoffExponent: customCloudProviderBackoffExponent,
+			CloudProviderBackoffJitter:   customCloudProviderBackoffJitter,
+			CloudProviderBackoffRetries:  customCloudProviderBackoffRetries,
+			CloudProviderRateLimitBucket: customCloudProviderRateLimitBucket,
+			CloudProviderRateLimitQPS:    customCloudProviderRateLimitQPS,
+		},
+	}
+	o.KubernetesConfig.SetCloudProviderBackoffDefaults()
+	o.KubernetesConfig.SetCloudProviderRateLimitDefaults()
+
+	intCasesCustom := []struct {
+		customVal   int
+		computedVal int
+	}{
+		{
+			customVal:   customCloudProviderBackoffRetries,
+			computedVal: o.KubernetesConfig.CloudProviderBackoffRetries,
+		},
+		{
+			customVal:   customCloudProviderBackoffDuration,
+			computedVal: o.KubernetesConfig.CloudProviderBackoffDuration,
+		},
+		{
+			customVal:   customCloudProviderRateLimitBucket,
+			computedVal: o.KubernetesConfig.CloudProviderRateLimitBucket,
+		},
+	}
+
+	for _, c := range intCasesCustom {
+		if c.computedVal != c.customVal {
+			t.Fatalf("KubernetesConfig empty cloudprovider configs should reflect default values after SetCloudProviderBackoffDefaults(), expected %d, got %d", c.customVal, c.computedVal)
+		}
+	}
+
+	floatCasesCustom := []struct {
+		customVal   float64
+		computedVal float64
+	}{
+		{
+			customVal:   customCloudProviderBackoffJitter,
+			computedVal: o.KubernetesConfig.CloudProviderBackoffJitter,
+		},
+		{
+			customVal:   customCloudProviderBackoffExponent,
+			computedVal: o.KubernetesConfig.CloudProviderBackoffExponent,
+		},
+		{
+			customVal:   customCloudProviderRateLimitQPS,
+			computedVal: o.KubernetesConfig.CloudProviderRateLimitQPS,
+		},
+	}
+
+	for _, c := range floatCasesCustom {
+		if c.computedVal != c.customVal {
+			t.Fatalf("KubernetesConfig empty cloudprovider configs should reflect default values after SetCloudProviderBackoffDefaults(), expected %f, got %f", c.customVal, c.computedVal)
+		}
+	}
+
+	// Test cloudprovider defaults when user provides *some* config values
+	v = "1.8.0"
+	o = OrchestratorProfile{
+		OrchestratorType:    "Kubernetes",
+		OrchestratorVersion: v,
+		KubernetesConfig: &KubernetesConfig{
+			CloudProviderBackoffDuration: customCloudProviderBackoffDuration,
+			CloudProviderRateLimitBucket: customCloudProviderRateLimitBucket,
+			CloudProviderRateLimitQPS:    customCloudProviderRateLimitQPS,
+		},
+	}
+	o.KubernetesConfig.SetCloudProviderBackoffDefaults()
+	o.KubernetesConfig.SetCloudProviderRateLimitDefaults()
+
+	intCasesMixed := []struct {
+		expectedVal int
+		computedVal int
+	}{
+		{
+			expectedVal: DefaultKubernetesCloudProviderBackoffRetries,
+			computedVal: o.KubernetesConfig.CloudProviderBackoffRetries,
+		},
+		{
+			expectedVal: customCloudProviderBackoffDuration,
+			computedVal: o.KubernetesConfig.CloudProviderBackoffDuration,
+		},
+		{
+			expectedVal: customCloudProviderRateLimitBucket,
+			computedVal: o.KubernetesConfig.CloudProviderRateLimitBucket,
+		},
+	}
+
+	for _, c := range intCasesMixed {
+		if c.computedVal != c.expectedVal {
+			t.Fatalf("KubernetesConfig empty cloudprovider configs should reflect default values after SetCloudProviderBackoffDefaults(), expected %d, got %d", c.expectedVal, c.computedVal)
+		}
+	}
+
+	floatCasesMixed := []struct {
+		expectedVal float64
+		computedVal float64
+	}{
+		{
+			expectedVal: DefaultKubernetesCloudProviderBackoffJitter,
+			computedVal: o.KubernetesConfig.CloudProviderBackoffJitter,
+		},
+		{
+			expectedVal: DefaultKubernetesCloudProviderBackoffExponent,
+			computedVal: o.KubernetesConfig.CloudProviderBackoffExponent,
+		},
+		{
+			expectedVal: customCloudProviderRateLimitQPS,
+			computedVal: o.KubernetesConfig.CloudProviderRateLimitQPS,
+		},
+	}
+
+	for _, c := range floatCasesMixed {
+		if c.computedVal != c.expectedVal {
+			t.Fatalf("KubernetesConfig empty cloudprovider configs should reflect default values after SetCloudProviderBackoffDefaults(), expected %f, got %f", c.expectedVal, c.computedVal)
+		}
+	}
+}
+
 func getMockAddon(name string) KubernetesAddon {
 	return KubernetesAddon{
 		Name: name,
@@ -1304,4 +1581,465 @@ func getMockAddon(name string) KubernetesAddon {
 			},
 		},
 	}
+}
+
+func TestAreAgentProfilesCustomVNET(t *testing.T) {
+	p := Properties{}
+	p.AgentPoolProfiles = []*AgentPoolProfile{
+		{
+			VnetSubnetID: "subnetlink1",
+		},
+		{
+			VnetSubnetID: "subnetlink2",
+		},
+	}
+
+	if !p.AreAgentProfilesCustomVNET() {
+		t.Fatalf("Expected isCustomVNET to be true when subnet exists for all agent pool profile")
+	}
+
+	p.AgentPoolProfiles = []*AgentPoolProfile{
+		{
+			VnetSubnetID: "subnetlink1",
+		},
+		{
+			VnetSubnetID: "",
+		},
+	}
+
+	if p.AreAgentProfilesCustomVNET() {
+		t.Fatalf("Expected isCustomVNET to be false when subnet exists for some agent pool profile")
+	}
+
+	p.AgentPoolProfiles = nil
+
+	if p.AreAgentProfilesCustomVNET() {
+		t.Fatalf("Expected isCustomVNET to be false when agent pool profiles is nil")
+	}
+}
+
+func TestGenerateClusterID(t *testing.T) {
+	p := &Properties{
+		AgentPoolProfiles: []*AgentPoolProfile{
+			{
+				Name: "foo_agent",
+			},
+		},
+	}
+
+	clusterID := p.GetClusterID()
+
+	r, err := regexp.Compile("[0-9]{8}")
+
+	if err != nil {
+		t.Errorf("unexpected error while parsing regex : %s", err.Error())
+	}
+
+	if !r.MatchString(clusterID) {
+		t.Fatal("ClusterID should be an 8 digit integer string")
+	}
+
+	p = &Properties{
+		HostedMasterProfile: &HostedMasterProfile{
+			DNSPrefix: "foodnsprefx",
+		},
+	}
+
+	clusterID = p.GetClusterID()
+
+	r, err = regexp.Compile("[0-9]{8}")
+
+	if err != nil {
+		t.Errorf("unexpected error while parsing regex : %s", err.Error())
+	}
+
+	if !r.MatchString(clusterID) {
+		t.Fatal("ClusterID should be an 8 digit integer string")
+	}
+}
+
+func TestGetPrimaryAvailabilitySetName(t *testing.T) {
+	p := &Properties{
+		OrchestratorProfile: &OrchestratorProfile{
+			OrchestratorType: Kubernetes,
+		},
+		MasterProfile: &MasterProfile{
+			Count:     1,
+			DNSPrefix: "foo",
+			VMSize:    "Standard_DS2_v2",
+		},
+		AgentPoolProfiles: []*AgentPoolProfile{
+			{
+				Name:                "agentpool",
+				VMSize:              "Standard_D2_v2",
+				Count:               1,
+				AvailabilityProfile: AvailabilitySet,
+			},
+		},
+	}
+
+	expected := "agentpool-availabilitySet-28513887"
+	got := p.GetPrimaryAvailabilitySetName()
+	if got != expected {
+		t.Errorf("expected primary availability set name %s, but got %s", expected, got)
+	}
+}
+
+func TestGetPrimaryScaleSetName(t *testing.T) {
+	p := &Properties{
+		OrchestratorProfile: &OrchestratorProfile{
+			OrchestratorType: Kubernetes,
+		},
+		MasterProfile: &MasterProfile{
+			Count:     1,
+			DNSPrefix: "foo",
+			VMSize:    "Standard_DS2_v2",
+		},
+		AgentPoolProfiles: []*AgentPoolProfile{
+			{
+				Name:                "agentpool",
+				VMSize:              "Standard_D2_v2",
+				Count:               1,
+				AvailabilityProfile: VirtualMachineScaleSets,
+			},
+		},
+	}
+
+	expected := "k8s-agentpool-28513887-vmss"
+	got := p.GetPrimaryScaleSetName()
+	if got != expected {
+		t.Errorf("expected primary availability set name %s, but got %s", expected, got)
+	}
+}
+
+func TestGetRouteTableName(t *testing.T) {
+	p := &Properties{
+		OrchestratorProfile: &OrchestratorProfile{
+			OrchestratorType: Kubernetes,
+		},
+		HostedMasterProfile: &HostedMasterProfile{
+			FQDN:      "fqdn",
+			DNSPrefix: "foo",
+			Subnet:    "mastersubnet",
+		},
+		AgentPoolProfiles: []*AgentPoolProfile{
+			{
+				Name:                "agentpool",
+				VMSize:              "Standard_D2_v2",
+				Count:               1,
+				AvailabilityProfile: VirtualMachineScaleSets,
+			},
+		},
+	}
+
+	actualRTName := p.GetRouteTableName()
+	expectedRTName := "aks-agentpool-28513887-routetable"
+
+	actualNSGName := p.GetNSGName()
+	expectedNSGName := "aks-agentpool-28513887-nsg"
+
+	if actualRTName != expectedRTName {
+		t.Errorf("expected route table name %s, but got %s", expectedRTName, actualRTName)
+	}
+
+	if actualNSGName != expectedNSGName {
+		t.Errorf("expected route table name %s, but got %s", expectedNSGName, actualNSGName)
+	}
+
+	p = &Properties{
+		OrchestratorProfile: &OrchestratorProfile{
+			OrchestratorType: Kubernetes,
+		},
+		MasterProfile: &MasterProfile{
+			Count:     1,
+			DNSPrefix: "foo",
+			VMSize:    "Standard_DS2_v2",
+		},
+		AgentPoolProfiles: []*AgentPoolProfile{
+			{
+				Name:                "agentpool",
+				VMSize:              "Standard_D2_v2",
+				Count:               1,
+				AvailabilityProfile: VirtualMachineScaleSets,
+			},
+		},
+	}
+
+	actualRTName = p.GetRouteTableName()
+	expectedRTName = "k8s-master-28513887-routetable"
+
+	actualNSGName = p.GetNSGName()
+	expectedNSGName = "k8s-master-28513887-nsg"
+
+	if actualRTName != expectedRTName {
+		t.Errorf("expected route table name %s, but got %s", actualRTName, expectedRTName)
+	}
+
+	if actualNSGName != expectedNSGName {
+		t.Errorf("expected route table name %s, but got %s", actualNSGName, expectedNSGName)
+	}
+}
+
+func TestGetSubnetName(t *testing.T) {
+	tests := []struct {
+		name               string
+		properties         *Properties
+		expectedSubnetName string
+	}{
+		{
+			name: "Cluster with HosterMasterProfile",
+			properties: &Properties{
+				OrchestratorProfile: &OrchestratorProfile{
+					OrchestratorType: Kubernetes,
+				},
+				HostedMasterProfile: &HostedMasterProfile{
+					FQDN:      "fqdn",
+					DNSPrefix: "foo",
+					Subnet:    "mastersubnet",
+				},
+				AgentPoolProfiles: []*AgentPoolProfile{
+					{
+						Name:                "agentpool",
+						VMSize:              "Standard_D2_v2",
+						Count:               1,
+						AvailabilityProfile: VirtualMachineScaleSets,
+					},
+				},
+			},
+			expectedSubnetName: "aks-subnet",
+		},
+		{
+			name: "Cluster with HosterMasterProfile and custom VNET",
+			properties: &Properties{
+				OrchestratorProfile: &OrchestratorProfile{
+					OrchestratorType: Kubernetes,
+				},
+				HostedMasterProfile: &HostedMasterProfile{
+					FQDN:      "fqdn",
+					DNSPrefix: "foo",
+					Subnet:    "mastersubnet",
+				},
+				AgentPoolProfiles: []*AgentPoolProfile{
+					{
+						Name:                "agentpool",
+						VMSize:              "Standard_D2_v2",
+						Count:               1,
+						AvailabilityProfile: VirtualMachineScaleSets,
+						VnetSubnetID:        "/subscriptions/SUBSCRIPTION_ID/resourceGroups/RESOURCE_GROUP_NAME/providers/Microsoft.Network/virtualNetworks/ExampleCustomVNET/subnets/BazAgentSubnet",
+					},
+				},
+			},
+			expectedSubnetName: "BazAgentSubnet",
+		},
+		{
+			name: "Cluster with MasterProfile",
+			properties: &Properties{
+				OrchestratorProfile: &OrchestratorProfile{
+					OrchestratorType: Kubernetes,
+				},
+				MasterProfile: &MasterProfile{
+					Count:     1,
+					DNSPrefix: "foo",
+					VMSize:    "Standard_DS2_v2",
+				},
+				AgentPoolProfiles: []*AgentPoolProfile{
+					{
+						Name:                "agentpool",
+						VMSize:              "Standard_D2_v2",
+						Count:               1,
+						AvailabilityProfile: VirtualMachineScaleSets,
+					},
+				},
+			},
+			expectedSubnetName: "k8s-subnet",
+		},
+		{
+			name: "Cluster with MasterProfile and custom VNET",
+			properties: &Properties{
+				OrchestratorProfile: &OrchestratorProfile{
+					OrchestratorType: Kubernetes,
+				},
+				MasterProfile: &MasterProfile{
+					Count:        1,
+					DNSPrefix:    "foo",
+					VMSize:       "Standard_DS2_v2",
+					VnetSubnetID: "/subscriptions/SUBSCRIPTION_ID/resourceGroups/RESOURCE_GROUP_NAME/providers/Microsoft.Network/virtualNetworks/ExampleCustomVNET/subnets/BazAgentSubnet",
+				},
+				AgentPoolProfiles: []*AgentPoolProfile{
+					{
+						Name:                "agentpool",
+						VMSize:              "Standard_D2_v2",
+						Count:               1,
+						AvailabilityProfile: VirtualMachineScaleSets,
+					},
+				},
+			},
+			expectedSubnetName: "BazAgentSubnet",
+		},
+	}
+
+	for _, test := range tests {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			actual := test.properties.GetSubnetName()
+
+			if actual != test.expectedSubnetName {
+				t.Errorf("expected subnet name %s, but got %s", test.expectedSubnetName, actual)
+			}
+		})
+	}
+}
+
+func TestProperties_GetVirtualNetworkName(t *testing.T) {
+	tests := []struct {
+		name                       string
+		properties                 *Properties
+		expectedVirtualNetworkName string
+	}{
+		{
+			name: "Cluster with HostedMasterProfile and Custom VNET AgentProfiles",
+			properties: &Properties{
+				HostedMasterProfile: &HostedMasterProfile{
+					FQDN:      "fqdn",
+					DNSPrefix: "foo",
+					Subnet:    "mastersubnet",
+				},
+				AgentPoolProfiles: []*AgentPoolProfile{
+					{
+						Name:                "agentpool",
+						VMSize:              "Standard_D2_v2",
+						Count:               1,
+						AvailabilityProfile: VirtualMachineScaleSets,
+						VnetSubnetID:        "/subscriptions/SUBSCRIPTION_ID/resourceGroups/RESOURCE_GROUP_NAME/providers/Microsoft.Network/virtualNetworks/ExampleCustomVNET/subnets/BazAgentSubnet",
+					},
+				},
+			},
+			expectedVirtualNetworkName: "ExampleCustomVNET",
+		},
+		{
+			name: "Cluster with HostedMasterProfile and AgentProfiles",
+			properties: &Properties{
+				OrchestratorProfile: &OrchestratorProfile{
+					OrchestratorType: Kubernetes,
+				},
+				HostedMasterProfile: &HostedMasterProfile{
+					FQDN:      "fqdn",
+					DNSPrefix: "foo",
+					Subnet:    "mastersubnet",
+				},
+				AgentPoolProfiles: []*AgentPoolProfile{
+					{
+						Name:                "agentpool",
+						VMSize:              "Standard_D2_v2",
+						Count:               1,
+						AvailabilityProfile: VirtualMachineScaleSets,
+					},
+				},
+			},
+			expectedVirtualNetworkName: "aks-vnet-28513887",
+		},
+	}
+
+	for _, test := range tests {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			actual := test.properties.GetVirtualNetworkName()
+
+			if actual != test.expectedVirtualNetworkName {
+				t.Errorf("expected virtual network name %s, but got %s", test.expectedVirtualNetworkName, actual)
+			}
+		})
+	}
+}
+
+func TestProperties_GetVNetResourceGroupName(t *testing.T) {
+	p := &Properties{
+		HostedMasterProfile: &HostedMasterProfile{
+			FQDN:      "fqdn",
+			DNSPrefix: "foo",
+			Subnet:    "mastersubnet",
+		},
+		AgentPoolProfiles: []*AgentPoolProfile{
+			{
+				Name:                "agentpool",
+				VMSize:              "Standard_D2_v2",
+				Count:               1,
+				AvailabilityProfile: VirtualMachineScaleSets,
+				VnetSubnetID:        "/subscriptions/SUBSCRIPTION_ID/resourceGroups/RESOURCE_GROUP_NAME/providers/Microsoft.Network/virtualNetworks/ExampleCustomVNET/subnets/BazAgentSubnet",
+			},
+		},
+	}
+	expectedVNETResourceGroupName := "RESOURCE_GROUP_NAME"
+
+	actual := p.GetVNetResourceGroupName()
+
+	if expectedVNETResourceGroupName != actual {
+		t.Errorf("expected vnet resource group name name %s, but got %s", expectedVNETResourceGroupName, actual)
+	}
+}
+
+func TestProperties_GetClusterMetadata(t *testing.T) {
+	p := &Properties{
+		OrchestratorProfile: &OrchestratorProfile{
+			OrchestratorType: Kubernetes,
+		},
+		MasterProfile: &MasterProfile{
+			Count:        1,
+			DNSPrefix:    "foo",
+			VMSize:       "Standard_DS2_v2",
+			VnetSubnetID: "/subscriptions/SUBSCRIPTION_ID/resourceGroups/SAMPLE_RESOURCE_GROUP_NAME/providers/Microsoft.Network/virtualNetworks/ExampleCustomVNET/subnets/BazAgentSubnet",
+		},
+		AgentPoolProfiles: []*AgentPoolProfile{
+			{
+				Name:                "agentpool",
+				VMSize:              "Standard_D2_v2",
+				Count:               1,
+				AvailabilityProfile: AvailabilitySet,
+			},
+		},
+	}
+
+	metadata := p.GetClusterMetadata()
+
+	if metadata == nil {
+		t.Error("did not expect cluster metadata to be nil")
+	}
+
+	expectedSubnetName := "BazAgentSubnet"
+	if metadata.SubnetName != expectedSubnetName {
+		t.Errorf("expected subnet name %s, but got %s", expectedSubnetName, metadata.SubnetName)
+	}
+
+	expectedVNetResourceGroupName := "SAMPLE_RESOURCE_GROUP_NAME"
+	if metadata.VNetResourceGroupName != expectedVNetResourceGroupName {
+		t.Errorf("expected vNetResourceGroupName name %s, but got %s", expectedVNetResourceGroupName, metadata.VNetResourceGroupName)
+	}
+
+	expectedVirtualNetworkName := "ExampleCustomVNET"
+	if metadata.VirtualNetworkName != expectedVirtualNetworkName {
+		t.Errorf("expected VirtualNetworkName name %s, but got %s", expectedVirtualNetworkName, metadata.VirtualNetworkName)
+	}
+
+	expectedRouteTableName := "k8s-master-28513887-routetable"
+	if metadata.RouteTableName != expectedRouteTableName {
+		t.Errorf("expected RouteTableName name %s, but got %s", expectedVirtualNetworkName, metadata.RouteTableName)
+	}
+
+	expectedSecurityGroupName := "k8s-master-28513887-nsg"
+	if metadata.SecurityGroupName != expectedSecurityGroupName {
+		t.Errorf("expected SecurityGroupName name %s, but got %s", expectedSecurityGroupName, metadata.SecurityGroupName)
+	}
+
+	expectedPrimaryAvailabilitySetName := "agentpool-availabilitySet-28513887"
+	if metadata.PrimaryAvailabilitySetName != expectedPrimaryAvailabilitySetName {
+		t.Errorf("expected PrimaryAvailabilitySetName name %s, but got %s", expectedPrimaryAvailabilitySetName, metadata.PrimaryAvailabilitySetName)
+	}
+
+	expectedPrimaryScaleSetName := "k8s-agentpool-28513887-vmss"
+	if metadata.PrimaryScaleSetName != expectedPrimaryScaleSetName {
+		t.Errorf("expected PrimaryScaleSetName name %s, but got %s", expectedPrimaryScaleSetName, metadata.PrimaryScaleSetName)
+	}
+
 }

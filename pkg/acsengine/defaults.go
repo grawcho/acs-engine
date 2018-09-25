@@ -73,7 +73,23 @@ var (
 		ImageOffer:     "UbuntuServer",
 		ImageSku:       "16.04-LTS",
 		ImagePublisher: "Canonical",
-		ImageVersion:   "16.04.201808140",
+		ImageVersion:   "16.04.201809120",
+	}
+
+	//SovereignCloudsUbuntuImageConfig is the Linux distribution for Azure Sovereign Clouds.
+	SovereignCloudsUbuntuImageConfig = AzureOSImageConfig{
+		ImageOffer:     "UbuntuServer",
+		ImageSku:       "16.04-LTS",
+		ImagePublisher: "Canonical",
+		ImageVersion:   "latest",
+	}
+
+	//GermanCloudUbuntuImageConfig is the Linux distribution for Azure Sovereign Clouds.
+	GermanCloudUbuntuImageConfig = AzureOSImageConfig{
+		ImageOffer:     "UbuntuServer",
+		ImageSku:       "16.04-LTS",
+		ImagePublisher: "Canonical",
+		ImageVersion:   "16.04.201801050",
 	}
 
 	//DefaultRHELOSImageConfig is the RHEL Linux distribution.
@@ -97,7 +113,7 @@ var (
 		ImageOffer:     "aks",
 		ImageSku:       "aksbase",
 		ImagePublisher: "microsoft-aks",
-		ImageVersion:   "0.13.0",
+		ImageVersion:   "0.15.0",
 	}
 
 	//DefaultOpenShift39RHELImageConfig is the OpenShift on RHEL distribution.
@@ -150,14 +166,10 @@ var (
 			ResourceManagerVMDNSSuffix: "cloudapp.microsoftazure.de",
 		},
 		OSImageConfig: map[api.Distro]AzureOSImageConfig{
-			api.Ubuntu: {
-				ImageOffer:     "UbuntuServer",
-				ImageSku:       "16.04-LTS",
-				ImagePublisher: "Canonical",
-				ImageVersion:   "16.04.201801050",
-			},
+			api.Ubuntu: GermanCloudUbuntuImageConfig,
 			api.RHEL:   DefaultRHELOSImageConfig,
 			api.CoreOS: DefaultCoreOSImageConfig,
+			api.AKS:    GermanCloudUbuntuImageConfig,
 		},
 	}
 
@@ -171,14 +183,10 @@ var (
 			ResourceManagerVMDNSSuffix: "cloudapp.usgovcloudapi.net",
 		},
 		OSImageConfig: map[api.Distro]AzureOSImageConfig{
-			api.Ubuntu: {
-				ImageOffer:     "UbuntuServer",
-				ImageSku:       "16.04-LTS",
-				ImagePublisher: "Canonical",
-				ImageVersion:   "latest",
-			},
+			api.Ubuntu: SovereignCloudsUbuntuImageConfig,
 			api.RHEL:   DefaultRHELOSImageConfig,
 			api.CoreOS: DefaultCoreOSImageConfig,
+			api.AKS:    SovereignCloudsUbuntuImageConfig,
 		},
 	}
 
@@ -194,7 +202,9 @@ var (
 		KubernetesSpecConfig: KubernetesSpecConfig{
 			KubernetesImageBase:              "gcr.akscn.io/google_containers/",
 			TillerImageBase:                  "gcr.akscn.io/kubernetes-helm/",
-			ACIConnectorImageBase:            DefaultKubernetesSpecConfig.ACIConnectorImageBase,
+			ACIConnectorImageBase:            "dockerhub.akscn.io/microsoft/",
+			NVIDIAImageBase:                  "dockerhub.akscn.io/nvidia/",
+			AzureCNIImageBase:                "dockerhub.akscn.io/containernetworking/",
 			EtcdDownloadURLBase:              DefaultKubernetesSpecConfig.EtcdDownloadURLBase,
 			KubeBinariesSASURLBase:           DefaultKubernetesSpecConfig.KubeBinariesSASURLBase,
 			WindowsPackageSASURLBase:         DefaultKubernetesSpecConfig.WindowsPackageSASURLBase,
@@ -215,14 +225,10 @@ var (
 			ResourceManagerVMDNSSuffix: "cloudapp.chinacloudapi.cn",
 		},
 		OSImageConfig: map[api.Distro]AzureOSImageConfig{
-			api.Ubuntu: {
-				ImageOffer:     "UbuntuServer",
-				ImageSku:       "16.04-LTS",
-				ImagePublisher: "Canonical",
-				ImageVersion:   "latest",
-			},
+			api.Ubuntu: SovereignCloudsUbuntuImageConfig,
 			api.RHEL:   DefaultRHELOSImageConfig,
 			api.CoreOS: DefaultCoreOSImageConfig,
+			api.AKS:    SovereignCloudsUbuntuImageConfig,
 		},
 	}
 )
@@ -237,12 +243,19 @@ func setPropertiesDefaults(cs *api.ContainerService, isUpgrade, isScale bool) (b
 	if cs.Properties.MasterProfile != nil {
 		setMasterProfileDefaults(properties, isUpgrade)
 	}
+	// Set VMSS Defaults for Masters
+	if cs.Properties.MasterProfile != nil && cs.Properties.MasterProfile.IsVirtualMachineScaleSets() {
+		setVMSSDefaultsForMasters(properties)
+	}
 
 	setAgentProfileDefaults(properties, isUpgrade, isScale)
 
 	setStorageDefaults(properties)
 	setExtensionDefaults(properties)
-	setVMSSDefaults(properties)
+	// Set VMSS Defaults for Agents
+	if cs.Properties.HasVMSSAgentPool() {
+		setVMSSDefaultsForAgents(properties)
+	}
 
 	// Set hosted master profile defaults if this cluster configuration has a hosted control plane
 	if cs.Properties.HostedMasterProfile != nil {
@@ -272,8 +285,6 @@ func setOrchestratorDefaults(cs *api.ContainerService, isUpdate bool) {
 
 	switch o.OrchestratorType {
 	case api.Kubernetes:
-		k8sVersion := o.OrchestratorVersion
-
 		if o.KubernetesConfig == nil {
 			o.KubernetesConfig = &api.KubernetesConfig{}
 		}
@@ -337,32 +348,21 @@ func setOrchestratorDefaults(cs *api.ContainerService, isUpdate bool) {
 		if o.KubernetesConfig.ServiceCIDR == "" {
 			o.KubernetesConfig.ServiceCIDR = DefaultKubernetesServiceCIDR
 		}
+
+		if o.KubernetesConfig.CloudProviderBackoff == nil {
+			o.KubernetesConfig.CloudProviderBackoff = helpers.PointerToBool(DefaultKubernetesCloudProviderBackoff)
+		}
 		// Enforce sane cloudprovider backoff defaults, if CloudProviderBackoff is true in KubernetesConfig
-		o.KubernetesConfig.CloudProviderBackoff = true
-		if o.KubernetesConfig.CloudProviderBackoffDuration == 0 {
-			o.KubernetesConfig.CloudProviderBackoffDuration = DefaultKubernetesCloudProviderBackoffDuration
+		if helpers.IsTrueBoolPointer(o.KubernetesConfig.CloudProviderBackoff) {
+			o.KubernetesConfig.SetCloudProviderBackoffDefaults()
 		}
-		if o.KubernetesConfig.CloudProviderBackoffExponent == 0 {
-			o.KubernetesConfig.CloudProviderBackoffExponent = DefaultKubernetesCloudProviderBackoffExponent
+
+		if o.KubernetesConfig.CloudProviderRateLimit == nil {
+			o.KubernetesConfig.CloudProviderRateLimit = helpers.PointerToBool(DefaultKubernetesCloudProviderRateLimit)
 		}
-		if o.KubernetesConfig.CloudProviderBackoffJitter == 0 {
-			o.KubernetesConfig.CloudProviderBackoffJitter = DefaultKubernetesCloudProviderBackoffJitter
-		}
-		if o.KubernetesConfig.CloudProviderBackoffRetries == 0 {
-			o.KubernetesConfig.CloudProviderBackoffRetries = DefaultKubernetesCloudProviderBackoffRetries
-		}
-		k8sSemVer, _ := semver.Make(k8sVersion)
-		minVersion, _ := semver.Make("1.6.6")
 		// Enforce sane cloudprovider rate limit defaults, if CloudProviderRateLimit is true in KubernetesConfig
-		// For k8s version greater or equal to 1.6.6, we will set the default CloudProviderRate* settings
-		o.KubernetesConfig.CloudProviderRateLimit = true
-		if o.KubernetesConfig.CloudProviderRateLimit && k8sSemVer.GTE(minVersion) {
-			if o.KubernetesConfig.CloudProviderRateLimitQPS == 0 {
-				o.KubernetesConfig.CloudProviderRateLimitQPS = DefaultKubernetesCloudProviderRateLimitQPS
-			}
-			if o.KubernetesConfig.CloudProviderRateLimitBucket == 0 {
-				o.KubernetesConfig.CloudProviderRateLimitBucket = DefaultKubernetesCloudProviderRateLimitBucket
-			}
+		if helpers.IsTrueBoolPointer(o.KubernetesConfig.CloudProviderRateLimit) {
+			o.KubernetesConfig.SetCloudProviderRateLimitDefaults()
 		}
 
 		if o.KubernetesConfig.PrivateCluster == nil {
@@ -422,11 +422,11 @@ func setOrchestratorDefaults(cs *api.ContainerService, isUpdate bool) {
 			a.OrchestratorProfile.KubernetesConfig.UseInstanceMetadata = helpers.PointerToBool(api.DefaultUseInstanceMetadata)
 		}
 
-		if a.OrchestratorProfile.KubernetesConfig.LoadBalancerSku == "" {
+		if !a.HasAvailabilityZones() && a.OrchestratorProfile.KubernetesConfig.LoadBalancerSku == "" {
 			a.OrchestratorProfile.KubernetesConfig.LoadBalancerSku = api.DefaultLoadBalancerSku
 		}
 
-		if common.IsKubernetesVersionGe(a.OrchestratorProfile.OrchestratorVersion, "1.11.0") && a.OrchestratorProfile.KubernetesConfig.LoadBalancerSku == "Standard" {
+		if common.IsKubernetesVersionGe(a.OrchestratorProfile.OrchestratorVersion, "1.11.0") && a.OrchestratorProfile.KubernetesConfig.LoadBalancerSku == "Standard" && a.OrchestratorProfile.KubernetesConfig.ExcludeMasterFromStandardLB == nil {
 			a.OrchestratorProfile.KubernetesConfig.ExcludeMasterFromStandardLB = helpers.PointerToBool(api.DefaultExcludeMasterFromStandardLB)
 		}
 
@@ -584,8 +584,19 @@ func setMasterProfileDefaults(a *api.Properties, isUpgrade bool) {
 	}
 }
 
-// setVMSSDefaults
-func setVMSSDefaults(a *api.Properties) {
+// setVMSSDefaultsForMasters
+func setVMSSDefaultsForMasters(a *api.Properties) {
+	if a.MasterProfile.SinglePlacementGroup == nil {
+		a.MasterProfile.SinglePlacementGroup = helpers.PointerToBool(api.DefaultSinglePlacementGroup)
+	}
+	if a.MasterProfile.HasAvailabilityZones() && (a.OrchestratorProfile.KubernetesConfig != nil && a.OrchestratorProfile.KubernetesConfig.LoadBalancerSku == "") {
+		a.OrchestratorProfile.KubernetesConfig.LoadBalancerSku = "Standard"
+		a.OrchestratorProfile.KubernetesConfig.ExcludeMasterFromStandardLB = helpers.PointerToBool(api.DefaultExcludeMasterFromStandardLB)
+	}
+}
+
+// setVMSSDefaultsForAgents
+func setVMSSDefaultsForAgents(a *api.Properties) {
 	for _, profile := range a.AgentPoolProfiles {
 		if profile.AvailabilityProfile == api.VirtualMachineScaleSets {
 			if profile.Count > 100 {
@@ -594,10 +605,7 @@ func setVMSSDefaults(a *api.Properties) {
 			if profile.SinglePlacementGroup == nil {
 				profile.SinglePlacementGroup = helpers.PointerToBool(api.DefaultSinglePlacementGroup)
 			}
-			if profile.SinglePlacementGroup == helpers.PointerToBool(false) {
-				profile.StorageProfile = api.ManagedDisks
-			}
-			if profile.HasAvailabilityZones() {
+			if profile.HasAvailabilityZones() && (a.OrchestratorProfile.KubernetesConfig != nil && a.OrchestratorProfile.KubernetesConfig.LoadBalancerSku == "") {
 				a.OrchestratorProfile.KubernetesConfig.LoadBalancerSku = "Standard"
 				a.OrchestratorProfile.KubernetesConfig.ExcludeMasterFromStandardLB = helpers.PointerToBool(api.DefaultExcludeMasterFromStandardLB)
 			}
@@ -699,7 +707,7 @@ func setHostedMasterProfileDefaults(a *api.Properties) {
 
 func setDefaultCerts(a *api.Properties) (bool, error) {
 	if a.MasterProfile != nil && a.OrchestratorProfile.OrchestratorType == api.OpenShift {
-		return certgen.OpenShiftSetDefaultCerts(a, DefaultOpenshiftOrchestratorName, GenerateClusterID(a))
+		return certgen.OpenShiftSetDefaultCerts(a, api.DefaultOpenshiftOrchestratorName, a.GetClusterID())
 	}
 
 	if a.MasterProfile == nil || a.OrchestratorProfile.OrchestratorType != api.Kubernetes {

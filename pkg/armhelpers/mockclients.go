@@ -9,11 +9,14 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/Azure/acs-engine/pkg/helpers"
+
 	"github.com/Azure/azure-sdk-for-go/services/authorization/mgmt/2015-07-01/authorization"
 	"github.com/Azure/azure-sdk-for-go/services/compute/mgmt/2018-04-01/compute"
 	"github.com/Azure/azure-sdk-for-go/services/graphrbac/1.6/graphrbac"
 	"github.com/Azure/azure-sdk-for-go/services/preview/msi/mgmt/2015-08-31-preview/msi"
 	"github.com/Azure/azure-sdk-for-go/services/resources/mgmt/2018-05-01/resources"
+	azStorage "github.com/Azure/azure-sdk-for-go/storage"
 	"github.com/Azure/go-autorest/autorest"
 	log "github.com/sirupsen/logrus"
 	"k8s.io/api/core/v1"
@@ -43,7 +46,10 @@ type MockACSEngineClient struct {
 }
 
 //MockStorageClient mock implementation of StorageClient
-type MockStorageClient struct{}
+type MockStorageClient struct {
+	FailCreateContainer bool
+	FailSaveBlockBlob   bool
+}
 
 //MockKubernetesClient mock implementation of KubernetesClient
 type MockKubernetesClient struct {
@@ -241,8 +247,24 @@ func (mkc *MockKubernetesClient) WaitForDelete(logger *log.Entry, pods []v1.Pod,
 }
 
 //DeleteBlob mock
-func (msc *MockStorageClient) DeleteBlob(container, blob string) error {
+func (msc *MockStorageClient) DeleteBlob(container, blob string, options *azStorage.DeleteBlobOptions) error {
 	return nil
+}
+
+//CreateContainer mock
+func (msc *MockStorageClient) CreateContainer(container string, options *azStorage.CreateContainerOptions) (bool, error) {
+	if !msc.FailCreateContainer {
+		return true, nil
+	}
+	return false, errors.New("CreateContainer failed")
+}
+
+//SaveBlockBlob mock
+func (msc *MockStorageClient) SaveBlockBlob(container, blob string, b []byte, options *azStorage.PutBlobOptions) error {
+	if !msc.FailSaveBlockBlob {
+		return nil
+	}
+	return errors.New("SaveBlockBlob failed")
 }
 
 //AddAcceptLanguages mock
@@ -530,8 +552,15 @@ func (mc *MockACSEngineClient) CreateGraphPrincipal(ctx context.Context, service
 }
 
 // CreateApp is a simpler method for creating an application
-func (mc *MockACSEngineClient) CreateApp(ctx context.Context, applicationName, applicationURL string, replyURLs *[]string, requiredResourceAccess *[]graphrbac.RequiredResourceAccess) (applicationID, servicePrincipalObjectID, secret string, err error) {
-	return "app-id", "client-id", "client-secret", nil
+func (mc *MockACSEngineClient) CreateApp(ctx context.Context, applicationName, applicationURL string, replyURLs *[]string, requiredResourceAccess *[]graphrbac.RequiredResourceAccess) (result graphrbac.Application, servicePrincipalObjectID, secret string, err error) {
+	return graphrbac.Application{
+		AppID: helpers.PointerToString("app-id"),
+	}, "client-id", "client-secret", nil
+}
+
+// DeleteApp is a simpler method for deleting an application
+func (mc *MockACSEngineClient) DeleteApp(ctx context.Context, appName, applicationObjectID string) (response autorest.Response, err error) {
+	return response, nil
 }
 
 // User Assigned MSI

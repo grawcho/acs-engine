@@ -9,6 +9,8 @@ import (
 	"github.com/Azure/azure-sdk-for-go/services/graphrbac/1.6/graphrbac"
 	"github.com/Azure/azure-sdk-for-go/services/preview/msi/mgmt/2015-08-31-preview/msi"
 	"github.com/Azure/azure-sdk-for-go/services/resources/mgmt/2018-05-01/resources"
+	azStorage "github.com/Azure/azure-sdk-for-go/storage"
+	"github.com/Azure/go-autorest/autorest"
 	log "github.com/sirupsen/logrus"
 	"k8s.io/api/core/v1"
 )
@@ -101,7 +103,8 @@ type ACSEngineClient interface {
 
 	// CreateGraphPrincipal creates a service principal via the graphrbac client
 	CreateGraphPrincipal(ctx context.Context, servicePrincipalCreateParameters graphrbac.ServicePrincipalCreateParameters) (graphrbac.ServicePrincipal, error)
-	CreateApp(ctx context.Context, applicationName, applicationURL string, replyURLs *[]string, requiredResourceAccess *[]graphrbac.RequiredResourceAccess) (applicationID, servicePrincipalObjectID, secret string, err error)
+	CreateApp(ctx context.Context, applicationName, applicationURL string, replyURLs *[]string, requiredResourceAccess *[]graphrbac.RequiredResourceAccess) (result graphrbac.Application, servicePrincipalObjectID, secret string, err error)
+	DeleteApp(ctx context.Context, applicationName, applicationObjectID string) (autorest.Response, error)
 
 	// User Assigned MSI
 	//CreateUserAssignedID - Creates a user assigned msi.
@@ -130,7 +133,11 @@ type ACSEngineClient interface {
 // ACSStorageClient interface models the azure storage client
 type ACSStorageClient interface {
 	// DeleteBlob deletes the specified blob in the specified container.
-	DeleteBlob(container, blob string) error
+	DeleteBlob(containerName, blobName string, options *azStorage.DeleteBlobOptions) error
+	// CreateContainer creates the CloudBlobContainer if it does not exist
+	CreateContainer(containerName string, options *azStorage.CreateContainerOptions) (bool, error)
+	// SaveBlockBlob initializes a block blob by taking the byte
+	SaveBlockBlob(containerName, blobName string, b []byte, options *azStorage.PutBlobOptions) error
 }
 
 // KubernetesClient interface models client for interacting with kubernetes api server
