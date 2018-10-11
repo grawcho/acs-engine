@@ -15,6 +15,7 @@ import (
 	"github.com/blang/semver"
 	"github.com/pkg/errors"
 	"github.com/satori/go.uuid"
+	log "github.com/sirupsen/logrus"
 	"gopkg.in/go-playground/validator.v9"
 )
 
@@ -196,8 +197,7 @@ func (a *Properties) validateOrchestratorProfile(isUpdate bool) error {
 			}
 
 			if a.HasAvailabilityZones() {
-				// TODO: update this to 1.12 after it's released
-				minVersion, err := semver.Make("1.12.0-beta.0")
+				minVersion, err := semver.Make("1.12.0")
 				if err != nil {
 					return errors.New("could not validate version")
 				}
@@ -366,6 +366,7 @@ func (a *Properties) validateMasterProfile() error {
 	}
 
 	if m.IsVirtualMachineScaleSets() && a.OrchestratorProfile.OrchestratorType == Kubernetes {
+		log.Warnf("Clusters with VMSS masters are not yet upgradable! You will not be able to upgrade your cluster until a future version of acs-engine!")
 		e := validateVMSS(a.OrchestratorProfile, false, m.StorageProfile)
 		if e != nil {
 			return e
@@ -399,7 +400,7 @@ func (a *Properties) validateAgentPoolProfiles(isUpdate bool) error {
 			return e
 		}
 
-		if helpers.IsTrueBoolPointer(agentPoolProfile.AcceleratedNetworkingEnabled) {
+		if helpers.IsTrueBoolPointer(agentPoolProfile.AcceleratedNetworkingEnabled) || helpers.IsTrueBoolPointer(agentPoolProfile.AcceleratedNetworkingEnabledWindows) {
 			if e := validatePoolAcceleratedNetworking(agentPoolProfile.VMSize); e != nil {
 				return e
 			}
@@ -688,17 +689,17 @@ func (a *Properties) validateManagedIdentity() error {
 			if err != nil {
 				return errors.Errorf("could not validate version %s", version)
 			}
-			minVersion, err := semver.Make("1.12.0-beta.0")
+			minVersion, err := semver.Make("1.12.0")
 			if err != nil {
 				return errors.New("could not validate version")
 			}
 
 			if a.MasterProfile.IsVirtualMachineScaleSets() {
 				if sv.LT(minVersion) {
-					return errors.New("managed identity and VMSS masters can only be used with Kubernetes 1.12.0-beta.0 or above. Please specify \"orchestratorRelease\": \"1.12\"")
+					return errors.New("managed identity and VMSS masters can only be used with Kubernetes 1.12.0 or above. Please specify \"orchestratorRelease\": \"1.12\"")
 				}
 			} else if a.OrchestratorProfile.KubernetesConfig.UserAssignedID != "" && sv.LT(minVersion) {
-				return errors.New("user assigned identity can only be used with Kubernetes 1.12.0-beta.0 or above. Please specify \"orchestratorRelease\": \"1.12\"")
+				return errors.New("user assigned identity can only be used with Kubernetes 1.12.0 or above. Please specify \"orchestratorRelease\": \"1.12\"")
 			}
 
 		}
@@ -981,7 +982,7 @@ func (w *WindowsProfile) Validate(orchestratorType string) error {
 	if e := validate.Var(w.AdminPassword, "required"); e != nil {
 		return errors.New("WindowsProfile.AdminPassword is required, when agent pool specifies windows")
 	}
-	if validatePasswordComplexity(w.AdminUsername, w.AdminPassword) == false {
+	if !validatePasswordComplexity(w.AdminUsername, w.AdminPassword) {
 		return errors.New("WindowsProfile.AdminPassword complexity not met. Windows password should contain 3 of the following categories - uppercase letters(A-Z), lowercase(a-z) letters, digits(0-9), special characters (~!@#$%^&*_-+=`|\\(){}[]:;<>,.?/')")
 	}
 	return validateKeyVaultSecrets(w.Secrets, true)
@@ -1073,11 +1074,12 @@ func (k *KubernetesConfig) Validate(k8sVersion string, hasWindows bool) error {
 				}
 			}
 		}
-		if _, ok := k.KubeletConfig["--non-masquerade-cidr"]; ok {
+		// Re-enable this unit test if --non-masquerade-cidr is re-introduced
+		/*if _, ok := k.KubeletConfig["--non-masquerade-cidr"]; ok {
 			if _, _, err := net.ParseCIDR(k.KubeletConfig["--non-masquerade-cidr"]); err != nil {
 				return errors.Errorf("--non-masquerade-cidr kubelet config '%s' is an invalid CIDR string", k.KubeletConfig["--non-masquerade-cidr"])
 			}
-		}
+		}*/
 	}
 
 	if _, ok := k.ControllerManagerConfig["--pod-eviction-timeout"]; ok {

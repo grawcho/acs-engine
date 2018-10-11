@@ -497,7 +497,7 @@ We consider `kubeletConfig`, `controllerManagerConfig`, `apiServerConfig`, and `
 | imageReference.resourceGroup | no                                        | Resource group that contains the Linux OS image. Needs to be used in conjunction with name, above                                                                                                                                                                                                                                                                                                                          |
 | distro                       | no                                        | Select Master(s) Operating System (Linux only). Currently supported values are: `ubuntu`, `aks` and `coreos` (CoreOS support is currently experimental). Defaults to `aks` if undefined. `aks` is a custom image based on `ubuntu` that comes with pre-installed software necessary for Kubernetes deployments (Azure Public Cloud only for now). Currently supported OS and orchestrator configurations -- `ubuntu` and `aks`: DCOS, Docker Swarm, Kubernetes; `RHEL`: OpenShift; `coreos`: Kubernetes. [Example of CoreOS Master with CoreOS Agents](../examples/coreos/kubernetes-coreos.json) |
 | customFiles                  | no                                        | The custom files to be provisioned to the master nodes. Defined as an array of json objects with each defined as `"source":"absolute-local-path", "dest":"absolute-path-on-masternodes"`.[See examples](../examples/customfiles)                                                                                                                                                                                           |
-| availabilityProfile          | no                                                                   | Supported values are `AvailabilitySet` (default) and `VirtualMachineScaleSets` (requires Kubernetes clusters version 1.10+ and agent pool availabilityProfile must also be `VirtualMachineScaleSets`). When MasterProfile is using `VirtualMachineScaleSets`, to SSH into a master node, you need to use `ssh -p 50001` instead of port 22.                                                                                                                                                                                                                                                                                                                                                                                             |
+| availabilityProfile          | no                                                                   | Supported values are `AvailabilitySet` (default) and `VirtualMachineScaleSets` (still under development: upgrade not supported; requires Kubernetes clusters version 1.10+ and agent pool availabilityProfile must also be `VirtualMachineScaleSets`). When MasterProfile is using `VirtualMachineScaleSets`, to SSH into a master node, you need to use `ssh -p 50001` instead of port 22.                                                                                                                                                                                                                                                                                                                                                                                             |
 | agentVnetSubnetId                 | only required when using custom VNET and when MasterProfile is using `VirtualMachineScaleSets`                                         | Specifies the Id of an alternate VNET subnet for all the agent pool nodes. The subnet id must specify a valid VNET ID owned by the same subscription. ([bring your own VNET examples](../examples/vnet)). When MasterProfile is using `VirtualMachineScaleSets`, this value should be the subnetId of the subnet for all agent pool nodes.                                                                                                                                                                                                                                                |
 | [availabilityZones](../examples/kubernetes-zones/README.md)                    | no                                       | To protect your cluster from datacenter-level failures, you can enable the Availability Zones feature for your cluster by configuring `"availabilityZones"` for the master profile and all of the agentPool profiles in the cluster definition. Check out [Availability Zones README](../examples/kubernetes-zones/README.md) for more details.                                                                                                                                                                                                                                                   |
 
@@ -525,7 +525,8 @@ A cluster can have 0 to 12 agent pool profiles. Agent Pool Profiles are used for
 | imageReference.resourceGroup | no                                                                   | Resource group that contains the Linux OS image. Needs to be used in conjunction with name, above                                                                                                                                                                                                                                                                                                                                                                                                                                |
 | osType                       | no                                                                   | Specifies the agent pool's Operating System. Supported values are `Windows` and `Linux`. Defaults to `Linux`                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | distro                       | no                                                                   | Specifies the agent pool's Linux distribution. Supported values are `ubuntu`, `aks` and `coreos` (CoreOS support is currently experimental).  Defaults to `aks` if undefined, unless `osType` is defined as `Windows` (in which case `distro` is unused). `aks` is a custom image based on `ubuntu` that comes with pre-installed software necessary for Kubernetes deployments (Azure Public Cloud only for now). Currently supported OS and orchestrator configurations -- `ubuntu`: DCOS, Docker Swarm, Kubernetes; `RHEL`: OpenShift; `coreos`: Kubernetes. [Example of CoreOS Master with Windows and Linux (CoreOS and Ubuntu) Agents](../examples/coreos/kubernetes-coreos-hybrid.json) |
-| acceleratedNetworkingEnabled | no                                                                   | Use [Azure Accelerated Networking](https://azure.microsoft.com/en-us/blog/maximize-your-vm-s-performance-with-accelerated-networking-now-generally-available-for-both-windows-and-linux/) feature for agents (You must select a VM SKU that support Accelerated Networking)                                                                                                                                                                                                                                                      |
+| acceleratedNetworkingEnabled | no                                                                   | Use [Azure Accelerated Networking](https://azure.microsoft.com/en-us/blog/maximize-your-vm-s-performance-with-accelerated-networking-now-generally-available-for-both-windows-and-linux/) feature for Linux agents (You must select a VM SKU that supports Accelerated Networking). Defaults to `true` if the VM SKU selected supports Accelerated Networking                                                                                                                                                                                                                                                      |
+| acceleratedNetworkingEnabledWindows | no                                                                   | Use [Azure Accelerated Networking](https://azure.microsoft.com/en-us/blog/maximize-your-vm-s-performance-with-accelerated-networking-now-generally-available-for-both-windows-and-linux/) feature for Windows agents (You must select a VM SKU that supports Accelerated Networking). Defaults to `false`                                                                                                                                                                                                                                                      |
 
 ### linuxProfile
 
@@ -561,6 +562,50 @@ format for `sourceVault.id`, can be obtained in cli, or found in the portal: /su
 
 format for `vaultCertificates.certificateUrl`, can be obtained in cli, or found in the portal:
 https://{keyvaultname}.vault.azure.net:443/secrets/{secretName}/{version}
+
+
+### windowsProfile
+
+`windowsProfile` provides configuration specific to Windows nodes in the cluster
+
+| Name                             | Required | Description                                                              |
+| -------------------------------- | -------- | ------------------------------------------------------------------------ |
+| adminUsername                    | yes      | Username for the Windows adminstrator account created on each Windows node |
+| adminPassword                    | yes      | Password for the Windows adminstrator account created on each Windows node |
+| windowsPublisher                 | no       | Publisher used to find Windows VM to deploy from marketplace. Default: `MicrosoftWindowsServer` |
+| windowsOffer                     | no       | Offer used to find Windows VM to deploy from marketplace. Default: `WindowsServerSemiAnnual` |
+| windowsSku                       | no       | SKU usedto find Windows VM to deploy from marketplace. Default: `Datacenter-Core-1803-with-Containers-smalldisk` |
+| imageVersion                     | no       | Specific image version to deploy from marketplace.  Default: `latest` |
+| windowsImageSourceURL            | no       | Path to an existing Azure storage blob with a sysprepped VHD. This is used to test pre-release or customized VHD files that you have uploaded to Azure. If provided, the above 4 parameters are ignored. |
+
+#### Choosing a Windows version
+
+If you want to choose a specific Windows image, but automatically use the latest - set `windowsPublisher`, `windowsOffer`, and `windowsSku`. If you need a specific version, then add `imageVersion` too.
+
+You can find all available images with `az vm image list`
+
+```bash
+$ az vm image list --publisher MicrosoftWindowsServer --all -o table
+
+Offer                    Publisher                      Sku                                             Urn                                                                                                            Version
+-----------------------  -----------------------------  ----------------------------------------------  -------------------------------------------------------------------------------------------------------------  -----------------
+...
+WindowsServerSemiAnnual  MicrosoftWindowsServer         Datacenter-Core-1709-with-Containers-smalldisk  MicrosoftWindowsServer:WindowsServerSemiAnnual:Datacenter-Core-1709-with-Containers-smalldisk:1709.0.20180412  1709.0.20180412
+WindowsServerSemiAnnual  MicrosoftWindowsServer         Datacenter-Core-1803-with-Containers-smalldisk  MicrosoftWindowsServer:WindowsServerSemiAnnual:Datacenter-Core-1803-with-Containers-smalldisk:1803.0.20180504  1803.0.20180504
+```
+
+If you wanted to use the last one in the list above, then set:
+
+```json
+"windowsProfile": {
+            "adminUsername": "...",
+            "adminPassword": "...",
+            "windowsPublisher": "MicrosoftWindowsServer",
+            "windowsOffer": "WindowsServerSemiAnnual",
+            "windowsSku": "Datacenter-Core-1803-with-Containers-smalldisk",
+            "imageVersion": "1803.0.20180504"
+     },
+```
 
 ### servicePrincipalProfile
 

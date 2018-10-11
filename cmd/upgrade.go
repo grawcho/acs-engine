@@ -65,7 +65,7 @@ func newUpgradeCmd() *cobra.Command {
 	f.StringVarP(&uc.location, "location", "l", "", "location the cluster is deployed in (required)")
 	f.StringVarP(&uc.resourceGroupName, "resource-group", "g", "", "the resource group where the cluster is deployed (required)")
 	f.StringVar(&uc.deploymentDirectory, "deployment-dir", "", "the location of the output from `generate` (required)")
-	f.StringVar(&uc.upgradeVersion, "upgrade-version", "", "desired kubernetes version (required)")
+	f.StringVarP(&uc.upgradeVersion, "upgrade-version", "k", "", "desired kubernetes version (required)")
 	f.IntVar(&uc.timeoutInMinutes, "vm-timeout", -1, "how long to wait for each vm to be upgraded in minutes")
 	addAuthFlags(&uc.authArgs, f)
 
@@ -244,7 +244,7 @@ func (uc *upgradeCmd) run(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	f := acsengine.FileSaver{
+	f := helpers.FileSaver{
 		Translator: &i18n.Translator{
 			Locale: uc.locale,
 		},

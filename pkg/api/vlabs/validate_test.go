@@ -414,14 +414,15 @@ func Test_KubernetesConfig_Validate(t *testing.T) {
 			t.Error("should not error on valid --non-masquerade-cidr")
 		}
 
-		c = KubernetesConfig{
+		// Re-implement these tests if we re-introduce --ip-maquerade-cidr
+		/*c = KubernetesConfig{
 			KubeletConfig: map[string]string{
 				"--non-masquerade-cidr": "10.120.1.0/invalid",
 			},
 		}
 		if err := c.Validate(k8sVersion, false); err == nil {
 			t.Error("should error on invalid --non-masquerade-cidr")
-		}
+		}*/
 
 		c = KubernetesConfig{
 			MaxPods: KubernetesMinMaxPods - 1,
@@ -1437,7 +1438,7 @@ func TestProperties_ValidateManagedIdentity(t *testing.T) {
 					AvailabilityProfile: VirtualMachineScaleSets,
 				},
 			},
-			expectedErr: "managed identity and VMSS masters can only be used with Kubernetes 1.12.0-beta.0 or above. Please specify \"orchestratorRelease\": \"1.12\"",
+			expectedErr: "managed identity and VMSS masters can only be used with Kubernetes 1.12.0 or above. Please specify \"orchestratorRelease\": \"1.12\"",
 		},
 		{
 			name:                "use managed identity with master vmas",
@@ -1471,7 +1472,7 @@ func TestProperties_ValidateManagedIdentity(t *testing.T) {
 					Count:  1,
 				},
 			},
-			expectedErr: "user assigned identity can only be used with Kubernetes 1.12.0-beta.0 or above. Please specify \"orchestratorRelease\": \"1.12\"",
+			expectedErr: "user assigned identity can only be used with Kubernetes 1.12.0 or above. Please specify \"orchestratorRelease\": \"1.12\"",
 		},
 	}
 	for _, test := range tests {
