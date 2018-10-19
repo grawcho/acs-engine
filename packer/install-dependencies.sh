@@ -3,7 +3,7 @@
 source /home/packer/provision_installs.sh
 source /home/packer/provision_source.sh
 
-ETCD_VERSION="3.2.23"
+ETCD_VERSION="3.2.24"
 ETCD_DOWNLOAD_URL="https://acs-mirror.azureedge.net/github-coreos"
 installEtcd
 
@@ -17,7 +17,7 @@ installClearContainersRuntime
 
 installGPUDrivers
 
-VNET_CNI_VERSIONS="1.0.10 1.0.11"
+VNET_CNI_VERSIONS="1.0.10 1.0.11 1.0.12"
 CNI_PLUGIN_VERSIONS="0.7.1"
 
 for VNET_CNI_VERSION in $VNET_CNI_VERSIONS; do
@@ -118,7 +118,7 @@ done
 pullContainerImage "docker" "busybox"
 
 # TODO: fetch supported k8s versions from an acs-engine command instead of hardcoding them here
-K8S_VERSIONS="1.7.15 1.7.16 1.8.14 1.8.15 1.9.10 1.9.11 1.10.7 1.10.8 1.11.2 1.11.3 1.12.0 1.12.1"
+K8S_VERSIONS="1.7.15 1.7.16 1.8.14 1.8.15 1.9.10 1.9.11 1.10.8 1.10.9 1.11.2 1.11.3 1.12.0 1.12.1"
 
 for KUBERNETES_VERSION in ${K8S_VERSIONS}; do
     HYPERKUBE_URL="k8s.gcr.io/hyperkube-amd64:v${KUBERNETES_VERSION}"

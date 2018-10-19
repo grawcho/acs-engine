@@ -15,6 +15,7 @@ import (
 	"github.com/Azure/acs-engine/test/e2e/config"
 	"github.com/Azure/acs-engine/test/e2e/engine"
 	"github.com/Azure/acs-engine/test/e2e/kubernetes/deployment"
+	"github.com/Azure/acs-engine/test/e2e/kubernetes/hpa"
 	"github.com/Azure/acs-engine/test/e2e/kubernetes/job"
 	"github.com/Azure/acs-engine/test/e2e/kubernetes/namespace"
 	"github.com/Azure/acs-engine/test/e2e/kubernetes/networkpolicy"
@@ -36,10 +37,11 @@ const (
 )
 
 var (
-	cfg                         config.Config
-	eng                         engine.Engine
-	masterSSHPort               string
-	masterSSHPrivateKeyFilepath string
+	cfg                             config.Config
+	eng                             engine.Engine
+	masterSSHPort                   string
+	masterSSHPrivateKeyFilepath     string
+	longRunningApacheDeploymentName string
 )
 
 var _ = BeforeSuite(func() {
@@ -70,11 +72,10 @@ var _ = BeforeSuite(func() {
 		masterSSHPort = "22"
 	}
 	masterSSHPrivateKeyFilepath = cfg.GetSSHKeyPath()
-	// TODO
-	// If no user-configurable stability iteration value is passed in, run stability tests once
-	/*if cfg.StabilityIterations == 0 {
-		cfg.StabilityIterations = 1
-	}*/
+	if cfg.StabilityIterations == 0 && !eng.HasWindowsAgents() {
+		cfg.StabilityIterations = 10
+	}
+	longRunningApacheDeploymentName = "php-apache-long-running"
 })
 
 var _ = Describe("Azure Container Cluster using the Kubernetes Orchestrator", func() {
@@ -85,8 +86,7 @@ var _ = Describe("Azure Container Cluster using the Kubernetes Orchestrator", fu
 			master := fmt.Sprintf("azureuser@%s", kubeConfig.GetServerName())
 
 			lsbReleaseCmd := fmt.Sprintf("lsb_release -a && uname -r")
-			var cmd *exec.Cmd
-			cmd = exec.Command("ssh", "-i", masterSSHPrivateKeyFilepath, "-p", masterSSHPort, "-o", "ConnectTimeout=10", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null", master, lsbReleaseCmd)
+			cmd := exec.Command("ssh", "-i", masterSSHPrivateKeyFilepath, "-p", masterSSHPort, "-o", "ConnectTimeout=10", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null", master, lsbReleaseCmd)
 			util.PrintCommand(cmd)
 			out, err := cmd.CombinedOutput()
 			log.Printf("%s\n", out)
@@ -409,27 +409,6 @@ var _ = Describe("Azure Container Cluster using the Kubernetes Orchestrator", fu
 			}
 		})
 
-		It("should have stable external container networking", func() {
-			name := fmt.Sprintf("alpine-%s", cfg.Name)
-			command := fmt.Sprintf("nc -vz 8.8.8.8 53 || nc -vz 8.8.4.4 53")
-			successes, err := pod.RunCommandMultipleTimes(pod.RunLinuxPod, "alpine", name, command, cfg.StabilityIterations)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(successes).To(Equal(cfg.StabilityIterations))
-		})
-
-		It("should have stable internal container networking", func() {
-			name := fmt.Sprintf("alpine-%s", cfg.Name)
-			var command string
-			if common.IsKubernetesVersionGe(eng.ExpandedDefinition.Properties.OrchestratorProfile.OrchestratorVersion, "1.12.0") {
-				command = fmt.Sprintf("nc -vz kubernetes 443 && nc -vz kubernetes.default.svc 443 && nc -vz kubernetes.default.svc.cluster.local 443")
-			} else {
-				command = fmt.Sprintf("nc -vz kubernetes 443")
-			}
-			successes, err := pod.RunCommandMultipleTimes(pod.RunLinuxPod, "alpine", name, command, cfg.StabilityIterations)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(successes).To(Equal(cfg.StabilityIterations))
-		})
-
 		It("should be able to launch a long-running container networking DNS liveness pod", func() {
 			if !eng.HasNetworkPolicy("calico") {
 				var err error
@@ -449,14 +428,74 @@ var _ = Describe("Azure Container Cluster using the Kubernetes Orchestrator", fu
 			}
 		})
 
+		It("should be able to launch a long running HTTP listener and svc endpoint", func() {
+			By("Creating a php-apache deployment")
+			phpApacheDeploy, err := deployment.CreateLinuxDeploy("k8s.gcr.io/hpa-example", longRunningApacheDeploymentName, "default", "--requests=cpu=10m,memory=10M")
+			if err != nil {
+				fmt.Println(err)
+			}
+			Expect(err).NotTo(HaveOccurred())
+
+			By("Ensuring that php-apache pod is running")
+			running, err := pod.WaitOnReady(longRunningApacheDeploymentName, "default", 3, 5*time.Second, cfg.Timeout)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(running).To(Equal(true))
+
+			By("Ensuing that the php-apache pod has outbound internet access")
+			pods, err := phpApacheDeploy.Pods()
+			Expect(err).NotTo(HaveOccurred())
+			for _, p := range pods {
+				p.CheckLinuxOutboundConnection(5*time.Second, cfg.Timeout)
+			}
+
+			By("Exposing TCP 80 internally on the php-apache deployment")
+			err = phpApacheDeploy.Expose("ClusterIP", 80, 80)
+			Expect(err).NotTo(HaveOccurred())
+			_, err = service.Get(longRunningApacheDeploymentName, "default")
+			Expect(err).NotTo(HaveOccurred())
+		})
+
+		It("should have stable external container networking as we recycle a bunch of pods", func() {
+			name := fmt.Sprintf("alpine-%s", cfg.Name)
+			command := fmt.Sprintf("nc -vz 8.8.8.8 53 || nc -vz 8.8.4.4 53")
+			successes, err := pod.RunCommandMultipleTimes(pod.RunLinuxPod, "alpine", name, command, cfg.StabilityIterations)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(successes).To(Equal(cfg.StabilityIterations))
+		})
+
+		It("should have stable internal container networking as we recycle a bunch of pods", func() {
+			name := fmt.Sprintf("alpine-%s", cfg.Name)
+			var command string
+			if common.IsKubernetesVersionGe(eng.ExpandedDefinition.Properties.OrchestratorProfile.OrchestratorVersion, "1.12.0") {
+				command = fmt.Sprintf("nc -vz kubernetes 443 && nc -vz kubernetes.default.svc 443 && nc -vz kubernetes.default.svc.cluster.local 443")
+			} else {
+				command = fmt.Sprintf("nc -vz kubernetes 443")
+			}
+			successes, err := pod.RunCommandMultipleTimes(pod.RunLinuxPod, "alpine", name, command, cfg.StabilityIterations)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(successes).To(Equal(cfg.StabilityIterations))
+		})
+
+		It("should have stable pod-to-pod networking", func() {
+			if eng.HasLinuxAgents() {
+				By("Creating a test php-apache deployment")
+				r := rand.New(rand.NewSource(time.Now().UnixNano()))
+				By("Creating another pod that will connect to the php-apache pod")
+				commandString := fmt.Sprintf("nc -vz %s.default.svc.cluster.local 80", longRunningApacheDeploymentName)
+				consumerPodName := fmt.Sprintf("consumer-pod-%s-%v", cfg.Name, r.Intn(99999))
+				successes, err := pod.RunCommandMultipleTimes(pod.RunLinuxPod, "busybox", consumerPodName, commandString, cfg.StabilityIterations)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(successes).To(Equal(cfg.StabilityIterations))
+			}
+		})
+
 		It("should have functional host OS DNS", func() {
 			kubeConfig, err := GetConfig()
 			Expect(err).NotTo(HaveOccurred())
 			master := fmt.Sprintf("azureuser@%s", kubeConfig.GetServerName())
 
 			ifconfigCmd := fmt.Sprintf("ifconfig -a -v")
-			var cmd *exec.Cmd
-			cmd = exec.Command("ssh", "-i", masterSSHPrivateKeyFilepath, "-p", masterSSHPort, "-o", "ConnectTimeout=10", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null", master, ifconfigCmd)
+			cmd := exec.Command("ssh", "-i", masterSSHPrivateKeyFilepath, "-p", masterSSHPort, "-o", "ConnectTimeout=10", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null", master, ifconfigCmd)
 			util.PrintCommand(cmd)
 			out, err := cmd.CombinedOutput()
 			log.Printf("%s\n", out)
@@ -548,7 +587,7 @@ var _ = Describe("Azure Container Cluster using the Kubernetes Orchestrator", fu
 			Expect(err).NotTo(HaveOccurred())
 			Expect(ready).To(Equal(true))
 
-			By("Ensuring that we have stable external DNS resolution from a container")
+			By("Ensuring that we have stable external DNS resolution as we recycle a bunch of pods")
 			name := fmt.Sprintf("alpine-%s", cfg.Name)
 			command := fmt.Sprintf("nc -vz bbc.co.uk 80 || nc -vz google.com 443 || nc -vz microsoft.com 80")
 			successes, err := pod.RunCommandMultipleTimes(pod.RunLinuxPod, "alpine", name, command, cfg.StabilityIterations)
@@ -601,8 +640,7 @@ var _ = Describe("Azure Container Cluster using the Kubernetes Orchestrator", fu
 							Expect(address).NotTo(BeNil())
 							dashboardURL := fmt.Sprintf("http://%s:%v", address.Address, port)
 							curlCMD := fmt.Sprintf("curl --max-time 60 %s", dashboardURL)
-							var cmd *exec.Cmd
-							cmd = exec.Command("ssh", "-i", masterSSHPrivateKeyFilepath, "-p", masterSSHPort, "-o", "ConnectTimeout=10", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null", master, curlCMD)
+							cmd := exec.Command("ssh", "-i", masterSSHPrivateKeyFilepath, "-p", masterSSHPort, "-o", "ConnectTimeout=10", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null", master, curlCMD)
 							util.PrintCommand(cmd)
 							out, err := cmd.CombinedOutput()
 							if err == nil {
@@ -680,15 +718,14 @@ var _ = Describe("Azure Container Cluster using the Kubernetes Orchestrator", fu
 				By("Creating a test php-apache deployment with request limit thresholds")
 				// Inspired by http://blog.kubernetes.io/2016/07/autoscaling-in-kubernetes.html
 				r := rand.New(rand.NewSource(time.Now().UnixNano()))
-				phpApacheName := fmt.Sprintf("php-apache-%s-%v", cfg.Name, r.Intn(99999))
-				phpApacheDeploy, err := deployment.CreateLinuxDeploy("k8s.gcr.io/hpa-example", phpApacheName, "default", "--requests=cpu=10m,memory=10M")
+				phpApacheDeploy, err := deployment.Get(longRunningApacheDeploymentName, "default")
 				if err != nil {
 					fmt.Println(err)
 				}
 				Expect(err).NotTo(HaveOccurred())
 
 				By("Ensuring that one php-apache pod is running before autoscale configuration or load applied")
-				running, err := pod.WaitOnReady(phpApacheName, "default", 3, 30*time.Second, cfg.Timeout)
+				running, err := pod.WaitOnReady(longRunningApacheDeploymentName, "default", 3, 30*time.Second, cfg.Timeout)
 				Expect(err).NotTo(HaveOccurred())
 				Expect(running).To(Equal(true))
 
@@ -697,12 +734,6 @@ var _ = Describe("Azure Container Cluster using the Kubernetes Orchestrator", fu
 				// We should have exactly 1 pod to begin
 				Expect(len(phpPods)).To(Equal(1))
 
-				By("Exposing TCP 80 internally on the php-apache deployment")
-				err = phpApacheDeploy.Expose("ClusterIP", 80, 80)
-				Expect(err).NotTo(HaveOccurred())
-				s, err := service.Get(phpApacheName, "default")
-				Expect(err).NotTo(HaveOccurred())
-
 				By("Assigning hpa configuration to the php-apache deployment")
 				// Apply autoscale characteristics to deployment
 				err = phpApacheDeploy.CreateDeploymentHPA(5, 1, 10)
@@ -710,7 +741,7 @@ var _ = Describe("Azure Container Cluster using the Kubernetes Orchestrator", fu
 
 				By("Sending load to the php-apache service by creating a 3 replica deployment")
 				// Launch a simple busybox pod that wget's continuously to the apache serviceto simulate load
-				commandString := fmt.Sprintf("while true; do wget -q -O- http://%s.default.svc.cluster.local; done", phpApacheName)
+				commandString := fmt.Sprintf("while true; do wget -q -O- http://%s.default.svc.cluster.local; done", longRunningApacheDeploymentName)
 				loadTestName := fmt.Sprintf("load-test-%s-%v", cfg.Name, r.Intn(99999))
 				numLoadTestPods := 3
 				loadTestDeploy, err := deployment.RunLinuxDeploy("busybox", loadTestName, "default", commandString, numLoadTestPods)
@@ -733,9 +764,9 @@ var _ = Describe("Azure Container Cluster using the Kubernetes Orchestrator", fu
 				By("Cleaning up after ourselves")
 				err = loadTestDeploy.Delete(deleteResourceRetries)
 				Expect(err).NotTo(HaveOccurred())
-				err = phpApacheDeploy.Delete(deleteResourceRetries)
+				h, err := hpa.Get(longRunningApacheDeploymentName, "default")
 				Expect(err).NotTo(HaveOccurred())
-				err = s.Delete(deleteResourceRetries)
+				err = h.Delete(deleteResourceRetries)
 				Expect(err).NotTo(HaveOccurred())
 			} else {
 				Skip("This flavor/version of Kubernetes doesn't support hpa autoscale")
@@ -785,6 +816,27 @@ var _ = Describe("Azure Container Cluster using the Kubernetes Orchestrator", fu
 			} else {
 				Skip("No linux agent was provisioned for this Cluster Definition")
 			}
+		})
+
+		It("should be able to schedule a pod to a master node", func() {
+			By("Creating a pod with master nodeSelector")
+			p, err := pod.CreatePodFromFile(filepath.Join(WorkloadDir, "nginx-master.yaml"), "nginx-master", "default")
+			if err != nil {
+				p, err = pod.Get("nginx-master", "default")
+				Expect(err).NotTo(HaveOccurred())
+			}
+			running, err := p.WaitOnReady(5*time.Second, cfg.Timeout)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(running).To(Equal(true))
+
+			By("validating that master-scheduled pod has outbound internet connectivity")
+			pass, err := p.CheckLinuxOutboundConnection(5*time.Second, cfg.Timeout)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(pass).To(BeTrue())
+
+			By("Cleaning up after ourselves")
+			err = p.Delete(deleteResourceRetries)
+			Expect(err).NotTo(HaveOccurred())
 		})
 	})
 
@@ -924,26 +976,6 @@ var _ = Describe("Azure Container Cluster using the Kubernetes Orchestrator", fu
 				Expect(err).NotTo(HaveOccurred())
 			} else {
 				Skip("Availability zones was not configured for this Cluster Definition")
-			}
-		})
-	})
-
-	Describe("after the cluster has been up for awhile", func() {
-		It("dns-liveness pod should not have any restarts", func() {
-			if !eng.HasNetworkPolicy("calico") {
-				pod, err := pod.Get("dns-liveness", "default")
-				Expect(err).NotTo(HaveOccurred())
-				running, err := pod.WaitOnReady(5*time.Second, 3*time.Minute)
-				Expect(err).NotTo(HaveOccurred())
-				Expect(running).To(Equal(true))
-				restarts := pod.Status.ContainerStatuses[0].RestartCount
-				if cfg.SoakClusterName == "" {
-					err = pod.Delete(deleteResourceRetries)
-					Expect(err).NotTo(HaveOccurred())
-					Expect(restarts).To(Equal(0))
-				} else {
-					log.Printf("%d DNS livenessProbe restarts since this cluster was created...\n", restarts)
-				}
 			}
 		})
 	})
@@ -1275,6 +1307,41 @@ var _ = Describe("Azure Container Cluster using the Kubernetes Orchestrator", fu
 			} else {
 				Skip("No windows agent was provisioned for this Cluster Definition")
 			}
+		})
+	})
+
+	Describe("after the cluster has been up for awhile", func() {
+		It("dns-liveness pod should not have any restarts", func() {
+			if !eng.HasNetworkPolicy("calico") {
+				pod, err := pod.Get("dns-liveness", "default")
+				Expect(err).NotTo(HaveOccurred())
+				running, err := pod.WaitOnReady(5*time.Second, 3*time.Minute)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(running).To(Equal(true))
+				restarts := pod.Status.ContainerStatuses[0].RestartCount
+				if cfg.SoakClusterName == "" {
+					err = pod.Delete(deleteResourceRetries)
+					Expect(err).NotTo(HaveOccurred())
+					Expect(restarts).To(Equal(0))
+				} else {
+					log.Printf("%d DNS livenessProbe restarts since this cluster was created...\n", restarts)
+				}
+			}
+		})
+
+		It("should be able to cleanup the long running php-apache stuff", func() {
+			phpApacheDeploy, err := deployment.Get(longRunningApacheDeploymentName, "default")
+			if err != nil {
+				fmt.Println(err)
+			}
+			Expect(err).NotTo(HaveOccurred())
+			s, err := service.Get(longRunningApacheDeploymentName, "default")
+			Expect(err).NotTo(HaveOccurred())
+
+			err = s.Delete(deleteResourceRetries)
+			Expect(err).NotTo(HaveOccurred())
+			err = phpApacheDeploy.Delete(deleteResourceRetries)
+			Expect(err).NotTo(HaveOccurred())
 		})
 	})
 })

@@ -83,7 +83,7 @@ To learn more about supported orchestrators and versions, run the orchestrators 
 | container-monitoring                       | false               | 1                   | Delivers the Kubernetes container monitoring component |
 | [blobfuse-flexvolume](https://github.com/Azure/kubernetes-volume-drivers/tree/master/flexvolume/blobfuse)                        | true               | as many as linux agent nodes                   | Access virtual filesystem backed by the Azure Blob storage |
 | [smb-flexvolume](https://github.com/Azure/kubernetes-volume-drivers/tree/master/flexvolume/smb)                        | true               | as many as linux agent nodes                   | Access SMB server by using CIFS/SMB protocol |
-| [keyvault-flexvolume](../examples/addons/keyvault-flexvolume/README.md)                        | false               | as many as linux agent nodes                   | Access secrets, keys, and certs in Azure Key Vault from pods |
+| [keyvault-flexvolume](../examples/addons/keyvault-flexvolume/README.md)                        | true               | as many as linux agent nodes                   | Access secrets, keys, and certs in Azure Key Vault from pods |
 | [aad-pod-identity](../examples/addons/aad-pod-identity/README.md)                        | false               | 1 + 1 on each linux agent nodes | Assign Azure Active Directory Identities to Kubernetes applications |
 
 To give a bit more info on the `addons` property: We've tried to expose the basic bits of data that allow useful configuration of these cluster features. Here are some example usage patterns that will unpack what `addons` provide:
@@ -580,9 +580,10 @@ https://{keyvaultname}.vault.azure.net:443/secrets/{secretName}/{version}
 
 #### Choosing a Windows version
 
-If you want to choose a specific Windows image, but automatically use the latest - set `windowsPublisher`, `windowsOffer`, and `windowsSku`. If you need a specific version, then add `imageVersion` too.
+If you want to choose a specific Windows image, but automatically use the latest - set `windowsPublisher`, `windowsOffer`, and `windowsSku`. If you need a specific version, then add `agentWindowsVersion` too.
 
 You can find all available images with `az vm image list`
+
 
 ```bash
 $ az vm image list --publisher MicrosoftWindowsServer --all -o table

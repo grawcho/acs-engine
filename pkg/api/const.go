@@ -237,11 +237,11 @@ const (
 	// AzureCniPluginVerLinux specifies version of Azure CNI plugin, which has been mirrored from
 	// https://github.com/Azure/azure-container-networking/releases/download/${AZURE_PLUGIN_VER}/azure-vnet-cni-linux-amd64-${AZURE_PLUGIN_VER}.tgz
 	// to https://acs-mirror.azureedge.net/cni
-	AzureCniPluginVerLinux = "v1.0.11"
+	AzureCniPluginVerLinux = "v1.0.12"
 	// AzureCniPluginVerWindows specifies version of Azure CNI plugin, which has been mirrored from
 	// https://github.com/Azure/azure-container-networking/releases/download/${AZURE_PLUGIN_VER}/azure-vnet-cni-windows-amd64-${AZURE_PLUGIN_VER}.tgz
 	// to https://acs-mirror.azureedge.net/cni
-	AzureCniPluginVerWindows = "v1.0.11"
+	AzureCniPluginVerWindows = "v1.0.12"
 	// CNIPluginVer specifies the version of CNI implementation
 	// https://github.com/containernetworking/plugins
 	CNIPluginVer = "v0.7.1"
@@ -326,7 +326,7 @@ const (
 	//DefaultKubernetesGCLowThreshold specifies the value for the image-gc-low-threshold kubelet flag
 	DefaultKubernetesGCLowThreshold = 80
 	// DefaultEtcdVersion specifies the default etcd version to install
-	DefaultEtcdVersion = "3.2.23"
+	DefaultEtcdVersion = "3.2.24"
 	// DefaultEtcdDiskSize specifies the default size for Kubernetes master etcd disk volumes in GB
 	DefaultEtcdDiskSize = "256"
 	// DefaultEtcdDiskSizeGT3Nodes = size for Kubernetes master etcd disk volumes in GB if > 3 nodes

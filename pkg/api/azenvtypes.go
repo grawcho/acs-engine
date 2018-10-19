@@ -102,7 +102,7 @@ var (
 		ImageOffer:     "UbuntuServer",
 		ImageSku:       "16.04-LTS",
 		ImagePublisher: "Canonical",
-		ImageVersion:   "16.04.201809120",
+		ImageVersion:   "latest",
 	}
 
 	//SovereignCloudsUbuntuImageConfig is the Linux distribution for Azure Sovereign Clouds.
@@ -142,7 +142,7 @@ var (
 		ImageOffer:     "aks",
 		ImageSku:       "aksbase",
 		ImagePublisher: "microsoft-aks",
-		ImageVersion:   "0.18.0",
+		ImageVersion:   "0.19.0",
 	}
 
 	//DefaultOpenShift39RHELImageConfig is the OpenShift on RHEL distribution.
