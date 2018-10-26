@@ -596,6 +596,7 @@ func convertWindowsProfileToVLabs(api *WindowsProfile, vlabsProfile *vlabs.Windo
 	vlabsProfile.WindowsPublisher = api.WindowsPublisher
 	vlabsProfile.WindowsOffer = api.WindowsOffer
 	vlabsProfile.WindowsSku = api.WindowsSku
+	vlabsProfile.WindowsDockerVersion = api.WindowsDockerVersion
 	vlabsProfile.Secrets = []vlabs.KeyVaultSecrets{}
 	for _, s := range api.Secrets {
 		secret := &vlabs.KeyVaultSecrets{}
@@ -731,7 +732,6 @@ func convertKubernetesConfigToVLabs(api *KubernetesConfig, vlabs *vlabs.Kubernet
 	vlabs.UserAssignedID = api.UserAssignedID
 	vlabs.UserAssignedClientID = api.UserAssignedClientID
 	vlabs.CustomHyperkubeImage = api.CustomHyperkubeImage
-	vlabs.DockerEngineVersion = api.DockerEngineVersion
 	vlabs.CustomCcmImage = api.CustomCcmImage
 	vlabs.UseCloudControllerManager = api.UseCloudControllerManager
 	vlabs.CustomWindowsPackageURL = api.CustomWindowsPackageURL
@@ -750,6 +750,8 @@ func convertKubernetesConfigToVLabs(api *KubernetesConfig, vlabs *vlabs.Kubernet
 	vlabs.EtcdDiskSizeGB = api.EtcdDiskSizeGB
 	vlabs.EtcdEncryptionKey = api.EtcdEncryptionKey
 	vlabs.AzureCNIVersion = api.AzureCNIVersion
+	vlabs.AzureCNIURLLinux = api.AzureCNIURLLinux
+	vlabs.AzureCNIURLWindows = api.AzureCNIURLWindows
 	convertAddonsToVlabs(api, vlabs)
 	convertKubeletConfigToVlabs(api, vlabs)
 	convertControllerManagerConfigToVlabs(api, vlabs)

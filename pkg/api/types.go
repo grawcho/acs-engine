@@ -185,6 +185,7 @@ type WindowsProfile struct {
 	WindowsPublisher      string            `json:"windowsPublisher"`
 	WindowsOffer          string            `json:"windowsOffer"`
 	WindowsSku            string            `json:"windowsSku"`
+	WindowsDockerVersion  string            `json:"windowsDockerVersion"`
 	Secrets               []KeyVaultSecrets `json:"secrets,omitempty"`
 }
 
@@ -320,8 +321,8 @@ type KubernetesConfig struct {
 	UserAssignedID                   string            `json:"userAssignedID,omitempty"`
 	UserAssignedClientID             string            `json:"userAssignedClientID,omitempty"` //Note: cannot be provided in config. Used *only* for transferring this to azure.json.
 	CustomHyperkubeImage             string            `json:"customHyperkubeImage,omitempty"`
-	DockerEngineVersion              string            `json:"dockerEngineVersion,omitempty"`
-	CustomCcmImage                   string            `json:"customCcmImage,omitempty"` // Image for cloud-controller-manager
+	DockerEngineVersion              string            `json:"dockerEngineVersion,omitempty"` // Deprecated
+	CustomCcmImage                   string            `json:"customCcmImage,omitempty"`      // Image for cloud-controller-manager
 	UseCloudControllerManager        *bool             `json:"useCloudControllerManager,omitempty"`
 	CustomWindowsPackageURL          string            `json:"customWindowsPackageURL,omitempty"`
 	UseInstanceMetadata              *bool             `json:"useInstanceMetadata,omitempty"`
@@ -360,6 +361,8 @@ type KubernetesConfig struct {
 	LoadBalancerSku                  string            `json:"loadBalancerSku,omitempty"`
 	ExcludeMasterFromStandardLB      *bool             `json:"excludeMasterFromStandardLB,omitempty"`
 	AzureCNIVersion                  string            `json:"azureCNIVersion,omitempty"`
+	AzureCNIURLLinux                 string            `json:"azureCNIURLLinux,omitempty"`
+	AzureCNIURLWindows               string            `json:"azureCNIURLWindows,omitempty"`
 }
 
 // CustomFile has source as the full absolute source path to a file and dest
@@ -1080,6 +1083,14 @@ func (w *WindowsProfile) HasCustomImage() bool {
 	return len(w.WindowsImageSourceURL) > 0
 }
 
+// GetWindowsDockerVersion gets the docker version specified or returns default value
+func (w *WindowsProfile) GetWindowsDockerVersion() string {
+	if w.WindowsDockerVersion != "" {
+		return w.WindowsDockerVersion
+	}
+	return KubernetesWindowsDockerVersion
+}
+
 // HasSecrets returns true if the customer specified secrets to install
 func (l *LinuxProfile) HasSecrets() bool {
 	return len(l.Secrets) > 0
@@ -1290,7 +1301,7 @@ func (k *KubernetesConfig) PrivateJumpboxProvision() bool {
 	return false
 }
 
-// RequiresDocker returns if the kubernetes settings require docker to be installed.
+// RequiresDocker returns if the kubernetes settings require docker binary to be installed.
 func (k *KubernetesConfig) RequiresDocker() bool {
 	runtime := strings.ToLower(k.ContainerRuntime)
 	return runtime == "docker" || runtime == ""
@@ -1320,6 +1331,22 @@ func (k *KubernetesConfig) SetCloudProviderRateLimitDefaults() {
 	if k.CloudProviderRateLimitBucket == 0 {
 		k.CloudProviderRateLimitBucket = DefaultKubernetesCloudProviderRateLimitBucket
 	}
+}
+
+// GetAzureCNIURLLinux returns the full URL to source Azure CNI binaries from
+func (k *KubernetesConfig) GetAzureCNIURLLinux(cloudSpecConfig AzureEnvironmentSpecConfig) string {
+	if k.AzureCNIURLLinux != "" {
+		return k.AzureCNIURLLinux
+	}
+	return cloudSpecConfig.KubernetesSpecConfig.VnetCNILinuxPluginsDownloadURL
+}
+
+// GetAzureCNIURLWindows returns the full URL to source Azure CNI binaries from
+func (k *KubernetesConfig) GetAzureCNIURLWindows(cloudSpecConfig AzureEnvironmentSpecConfig) string {
+	if k.AzureCNIURLWindows != "" {
+		return k.AzureCNIURLWindows
+	}
+	return cloudSpecConfig.KubernetesSpecConfig.VnetCNIWindowsPluginsDownloadURL
 }
 
 //GetCloudSpecConfig returns the Kubernetes container images URL configurations based on the deploy target environment.
