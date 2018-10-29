@@ -524,7 +524,6 @@ func (a *Properties) validateAddons() error {
 				IsNSeriesSKU = true
 			}
 		}
-
 		for _, addon := range a.OrchestratorProfile.KubernetesConfig.Addons {
 
 			if addon.Data != "" {
@@ -831,6 +830,16 @@ func (a *AgentPoolProfile) validateCustomNodeLabels(orchestratorType string) err
 			}
 		default:
 			return errors.New("Agent CustomNodeLabels are only supported for DCOS and Kubernetes")
+		}
+	}
+	return nil
+}
+
+func (a *AgentPoolProfile) validateKubernetesDistro() error {
+	switch a.Distro {
+	case AKS:
+		if a.IsNSeriesSKU() {
+			return errors.Errorf("The %s VM SKU must use the %s Distro as they require the docker-engine container runtime", a.VMSize, AKSDockerEngine)
 		}
 	}
 	return nil
