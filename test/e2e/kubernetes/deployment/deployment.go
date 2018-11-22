@@ -81,6 +81,16 @@ func CreateLinuxDeploy(image, name, namespace, miscOpts string) (*Deployment, er
 	return d, nil
 }
 
+// CreateLinuxDeployIfNotExist first checks if a deployment already exists, and return it if so
+// If not, we call CreateLinuxDeploy
+func CreateLinuxDeployIfNotExist(image, name, namespace, miscOpts string) (*Deployment, error) {
+	deployment, err := Get(name, namespace)
+	if err != nil {
+		return CreateLinuxDeploy(image, name, namespace, miscOpts)
+	}
+	return deployment, nil
+}
+
 // RunLinuxDeploy will create a deployment that runs a bash command in a pod
 // --overrides=' "spec":{"template":{"spec": {"nodeSelector":{"beta.kubernetes.io/os":"linux"}}}}}'
 func RunLinuxDeploy(image, name, namespace, command string, replicas int) (*Deployment, error) {
@@ -172,6 +182,17 @@ func (d *Deployment) Expose(svcType string, targetPort, exposedPort int) error {
 	out, err := util.RunAndLogCommand(cmd)
 	if err != nil {
 		log.Printf("Error while trying to expose (%s) target port (%v) for deployment %s in namespace %s on port %v:%s\n", svcType, targetPort, d.Metadata.Name, d.Metadata.Namespace, exposedPort, string(out))
+		return err
+	}
+	return nil
+}
+
+// ScaleDeployment scales a deployment to n instancees
+func (d *Deployment) ScaleDeployment(n int) error {
+	cmd := exec.Command("kubectl", "scale", fmt.Sprintf("--replicas=%d", n), "deployment", d.Metadata.Name)
+	out, err := util.RunAndLogCommand(cmd)
+	if err != nil {
+		log.Printf("Error while scaling deployment %s to %d pods:%s\n", d.Metadata.Name, n, string(out))
 		return err
 	}
 	return nil

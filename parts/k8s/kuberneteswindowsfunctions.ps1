@@ -32,3 +32,23 @@ function DownloadFileOverHttp
     Invoke-WebRequest $Url -UseBasicParsing -OutFile $DestinationPath -Verbose
     Write-Log "Downloaded file to $DestinationPath"
 }
+
+# https://stackoverflow.com/a/34559554/697126
+function New-TemporaryDirectory {
+    $parent = [System.IO.Path]::GetTempPath()
+    [string] $name = [System.Guid]::NewGuid()
+    New-Item -ItemType Directory -Path (Join-Path $parent $name)
+}
+
+function Initialize-DataDirectories {
+    # Some of the Kubernetes tests that were designed for Linux try to mount /tmp into a pod
+    # On Windows, Go translates to c:\tmp. If that path doesn't exist, then some node tests fail
+
+    $requiredPaths = 'c:\tmp'
+
+    $requiredPaths | ForEach-Object {
+        if (-Not (Test-Path $_)) {
+            New-Item -ItemType Directory -Path $_
+        }
+    }
+}

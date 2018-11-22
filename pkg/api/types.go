@@ -69,6 +69,7 @@ type Properties struct {
 	HostedMasterProfile     *HostedMasterProfile     `json:"hostedMasterProfile,omitempty"`
 	AddonProfiles           map[string]AddonProfile  `json:"addonProfiles,omitempty"`
 	AzProfile               *AzProfile               `json:"azProfile,omitempty"`
+	FeatureFlags            *FeatureFlags            `json:"featureFlags,omitempty"`
 }
 
 // ClusterMetadata represents the metadata of the ACS cluster.
@@ -95,6 +96,12 @@ type AzProfile struct {
 	SubscriptionID string `json:"subscriptionId,omitempty"`
 	ResourceGroup  string `json:"resourceGroup,omitempty"`
 	Location       string `json:"location,omitempty"`
+}
+
+// FeatureFlags defines feature-flag restricted functionality
+type FeatureFlags struct {
+	EnableCSERunInBackground bool `json:"enableCSERunInBackground,omitempty"`
+	BlockOutboundInternet    bool `json:"blockOutboundInternet,omitempty"`
 }
 
 // ServicePrincipalProfile contains the client and secret used by the cluster for Azure Resource CRUD
@@ -325,6 +332,7 @@ type KubernetesConfig struct {
 	CustomCcmImage                   string            `json:"customCcmImage,omitempty"`      // Image for cloud-controller-manager
 	UseCloudControllerManager        *bool             `json:"useCloudControllerManager,omitempty"`
 	CustomWindowsPackageURL          string            `json:"customWindowsPackageURL,omitempty"`
+	WindowsNodeBinariesURL           string            `json:"windowsNodeBinariesURL,omitempty"`
 	UseInstanceMetadata              *bool             `json:"useInstanceMetadata,omitempty"`
 	EnableRbac                       *bool             `json:"enableRbac,omitempty"`
 	EnableSecureKubelet              *bool             `json:"enableSecureKubelet,omitempty"`
@@ -783,7 +791,7 @@ func (p *Properties) GetAgentVMPrefix(a *AgentPoolProfile) string {
 	vmPrefix := ""
 	if index != -1 {
 		if a.IsWindows() {
-			vmPrefix = nameSuffix[:5] + p.K8sOrchestratorName() + strconv.Itoa(900+index)
+			vmPrefix = nameSuffix[:4] + p.K8sOrchestratorName() + fmt.Sprintf("%02d", index)
 		} else {
 			vmPrefix = p.K8sOrchestratorName() + "-" + a.Name + "-" + nameSuffix + "-"
 			if a.IsVirtualMachineScaleSets() {
@@ -1228,7 +1236,7 @@ func (k *KubernetesConfig) IsAADPodIdentityEnabled() bool {
 
 // IsACIConnectorEnabled checks if the ACI Connector addon is enabled
 func (k *KubernetesConfig) IsACIConnectorEnabled() bool {
-	return k.isAddonEnabled(DefaultACIConnectorAddonName, DefaultAADPodIdentityAddonEnabled)
+	return k.isAddonEnabled(DefaultACIConnectorAddonName, DefaultACIConnectorAddonEnabled)
 }
 
 // IsClusterAutoscalerEnabled checks if the cluster autoscaler addon is enabled
@@ -1261,8 +1269,13 @@ func (k *KubernetesConfig) IsIPMasqAgentEnabled() bool {
 	return k.isAddonEnabled(IPMASQAgentAddonName, IPMasqAgentAddonEnabled)
 }
 
-// IsNSeriesSKU returns whether or not the agent pool has Standard_N SKU VMs
-func IsNSeriesSKU(p *Properties) bool {
+// IsNSeriesSKU returns true if the agent pool contains an N-series (NVIDIA GPU) VM
+func (a *AgentPoolProfile) IsNSeriesSKU() bool {
+	return common.IsNvidiaEnabledSKU(a.VMSize)
+}
+
+// HasNSeriesSKU returns whether or not there is an N series SKU agent pool
+func (p *Properties) HasNSeriesSKU() bool {
 	for _, profile := range p.AgentPoolProfiles {
 		if strings.Contains(profile.VMSize, "Standard_N") {
 			return true
@@ -1281,7 +1294,7 @@ func (p *Properties) IsNVIDIADevicePluginEnabled() bool {
 func getDefaultNVIDIADevicePluginEnabled(p *Properties) bool {
 	o := p.OrchestratorProfile
 	var addonEnabled bool
-	if IsNSeriesSKU(p) && common.IsKubernetesVersionGe(o.OrchestratorVersion, "1.10.0") {
+	if p.HasNSeriesSKU() && common.IsKubernetesVersionGe(o.OrchestratorVersion, "1.10.0") {
 		addonEnabled = true
 	} else {
 		addonEnabled = false
@@ -1348,6 +1361,21 @@ func (k *KubernetesConfig) GetAzureCNIURLWindows(cloudSpecConfig AzureEnvironmen
 		return k.AzureCNIURLWindows
 	}
 	return cloudSpecConfig.KubernetesSpecConfig.VnetCNIWindowsPluginsDownloadURL
+}
+
+// IsFeatureEnabled returns true if a feature flag is on for the provided feature
+func (f *FeatureFlags) IsFeatureEnabled(feature string) bool {
+	if f != nil {
+		switch feature {
+		case "CSERunInBackground":
+			return f.EnableCSERunInBackground
+		case "BlockOutboundInternet":
+			return f.BlockOutboundInternet
+		default:
+			return false
+		}
+	}
+	return false
 }
 
 //GetCloudSpecConfig returns the Kubernetes container images URL configurations based on the deploy target environment.

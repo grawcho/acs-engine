@@ -64,6 +64,10 @@ var (
 			networkPolicy: "calico",
 		},
 		{
+			networkPlugin: "azure",
+			networkPolicy: "calico",
+		},
+		{
 			networkPlugin: "",
 			networkPolicy: "calico",
 		},
@@ -363,6 +367,12 @@ func (a *Properties) validateMasterProfile() error {
 		}
 	}
 
+	if a.OrchestratorProfile.OrchestratorType == Kubernetes {
+		if m.IsVirtualMachineScaleSets() && m.VnetSubnetID != "" && m.FirstConsecutiveStaticIP != "" {
+			return errors.New("when masterProfile's availabilityProfile is VirtualMachineScaleSets and a vnetSubnetID is specified, the firstConsecutiveStaticIP should be empty and will be determined by an offset from the first IP in the vnetCidr")
+		}
+	}
+
 	if m.ImageRef != nil {
 		if err := m.ImageRef.validateImageNameAndGroup(); err != nil {
 			return err
@@ -377,6 +387,10 @@ func (a *Properties) validateMasterProfile() error {
 		}
 		if !a.IsClusterAllVirtualMachineScaleSets() {
 			return errors.New("VirtualMachineScaleSets for master profile must be used together with virtualMachineScaleSets for agent profiles. Set \"availabilityProfile\" to \"VirtualMachineScaleSets\" for agent profiles")
+		}
+
+		if a.OrchestratorProfile.KubernetesConfig != nil && a.OrchestratorProfile.KubernetesConfig.UseManagedIdentity && a.OrchestratorProfile.KubernetesConfig.UserAssignedID == "" {
+			return errors.New("virtualMachineScaleSets for master profile can be used only with user assigned MSI ! Please specify \"userAssignedID\" in \"kubernetesConfig\"")
 		}
 	}
 	if m.SinglePlacementGroup != nil && m.AvailabilityProfile == AvailabilitySet {
